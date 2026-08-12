@@ -1,0 +1,6 @@
+{
+  "name": "وصلني",
+  "description": "تطبيق مشاركة الرحلات مع محفظة إلكترونية خاصة ونظام نقاط",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
