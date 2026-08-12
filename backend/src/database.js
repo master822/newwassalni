@@ -1,172 +1,31 @@
-const Database = require("better-sqlite3");
-const fs = require("fs");
-const path = require("path");
+'use strict';
 
-const databaseFile =
-  process.env.DATABASE_PATH || "./data/wasalni.db";
+const { Pool } = require('pg');
 
-const absolutePath = path.isAbsolute(databaseFile)
-  ? databaseFile
-  : path.resolve(__dirname, "..", databaseFile);
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is not configured');
+}
 
-fs.mkdirSync(
-  path.dirname(absolutePath),
-  { recursive: true }
-);
-
-const db = new Database(absolutePath);
-
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id TEXT UNIQUE,
-    name TEXT NOT NULL,
-    email TEXT,
-    phone TEXT,
-    avatar_url TEXT,
-    role TEXT NOT NULL DEFAULT 'passenger',
-    rating REAL NOT NULL DEFAULT 0,
-    rating_count INTEGER NOT NULL DEFAULT 0,
-    ride_count INTEGER NOT NULL DEFAULT 0,
-    wallet_points INTEGER NOT NULL DEFAULT 150,
-    is_verified INTEGER NOT NULL DEFAULT 0,
-    is_suspended INTEGER NOT NULL DEFAULT 0,
-    suspend_reason TEXT,
-    referral_code TEXT UNIQUE,
-    referred_by TEXT,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
-CREATE TABLE IF NOT EXISTS rides (
-    id TEXT PRIMARY KEY,
-    driver_id INTEGER NOT NULL,
-    start_city TEXT NOT NULL,
-    end_city TEXT NOT NULL,
-    departure_date TEXT NOT NULL,
-    departure_time TEXT NOT NULL,
-    duration TEXT DEFAULT '',
-    price_per_seat REAL NOT NULL,
-    price_currency TEXT NOT NULL DEFAULT 'POINTS',
-    available_seats INTEGER NOT NULL,
-    total_seats INTEGER NOT NULL,
-    car_model TEXT DEFAULT '',
-    car_color TEXT DEFAULT '',
-    car_plate TEXT DEFAULT '',
-    allows_luggage INTEGER NOT NULL DEFAULT 1,
-    accept_cash INTEGER NOT NULL DEFAULT 1,
-    accept_wallet INTEGER NOT NULL DEFAULT 1,
-    women_only INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'UPCOMING',
-    meeting_point TEXT DEFAULT '',
-    notes TEXT DEFAULT '',
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    FOREIGN KEY(driver_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS bookings (
-    id TEXT PRIMARY KEY,
-    ride_id TEXT NOT NULL,
-    passenger_id INTEGER NOT NULL,
-    seats_booked INTEGER NOT NULL,
-    total_points REAL NOT NULL,
-    status TEXT NOT NULL DEFAULT 'UPCOMING',
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    FOREIGN KEY(ride_id) REFERENCES rides(id),
-    FOREIGN KEY(passenger_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS wallet_transactions (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    points INTEGER NOT NULL,
-    amount_usd REAL NOT NULL DEFAULT 0,
-    description TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'COMPLETED',
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS topup_requests (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    package_points INTEGER NOT NULL,
-    package_price_usd REAL NOT NULL DEFAULT 0,
-    receipt_image_path TEXT DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'PENDING',
-    rejection_reason TEXT,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS requested_trips (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    start_city TEXT NOT NULL,
-    end_city TEXT NOT NULL,
-    departure_date TEXT NOT NULL,
-    departure_time TEXT NOT NULL,
-    men_count INTEGER NOT NULL DEFAULT 1,
-    women_count INTEGER NOT NULL DEFAULT 0,
-    children_count INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'OPEN',
-    accepted_by_driver_id INTEGER,
-    accepted_by_driver_name TEXT,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS chat_messages (
-    id TEXT PRIMARY KEY,
-    ride_id TEXT NOT NULL,
-    sender_id INTEGER NOT NULL,
-    receiver_id INTEGER NOT NULL,
-    message_text TEXT NOT NULL,
-    image_uri TEXT,
-    is_location INTEGER NOT NULL DEFAULT 0,
-    latitude REAL,
-    longitude REAL,
-    is_payment_reminder INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-
-CREATE TABLE IF NOT EXISTS notifications (
-    id TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    message TEXT NOT NULL,
-    type TEXT NOT NULL,
-    is_read INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_rides_search
-ON rides(start_city, end_city, departure_date);
-
-CREATE INDEX IF NOT EXISTS idx_bookings_passenger
-ON bookings(passenger_id);
-
-CREATE INDEX IF NOT EXISTS idx_rides_driver
-ON rides(driver_id);
-`);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
 function makeId(prefix) {
   return (
     prefix +
-    "_" +
+    '_' +
     Date.now().toString(36) +
-    "_" +
+    '_' +
     Math.random().toString(36).substring(2, 8)
   );
 }
 
 function makeReferralCode() {
   return (
-    "WASALNI-" +
+    'WASALNI-' +
     Math.random()
       .toString(36)
       .substring(2, 8)
@@ -174,37 +33,172 @@ function makeReferralCode() {
   );
 }
 
-function getUserById(id) {
-  return db
-    .prepare(
-      "SELECT * FROM users WHERE id = ?"
-    )
-    .get(id);
+async function initDatabase() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      telegram_id TEXT UNIQUE,
+      name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      avatar_url TEXT,
+      role TEXT NOT NULL DEFAULT 'passenger',
+      rating REAL NOT NULL DEFAULT 0,
+      rating_count INTEGER NOT NULL DEFAULT 0,
+      ride_count INTEGER NOT NULL DEFAULT 0,
+      wallet_points INTEGER NOT NULL DEFAULT 150,
+      is_verified INTEGER NOT NULL DEFAULT 0,
+      is_suspended INTEGER NOT NULL DEFAULT 0,
+      suspend_reason TEXT,
+      referral_code TEXT UNIQUE,
+      referred_by BIGINT,
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS rides (
+      id TEXT PRIMARY KEY,
+      driver_id BIGINT NOT NULL REFERENCES users(id),
+      start_city TEXT NOT NULL,
+      end_city TEXT NOT NULL,
+      departure_date TEXT NOT NULL,
+      departure_time TEXT NOT NULL,
+      duration TEXT DEFAULT '',
+      price_per_seat REAL NOT NULL,
+      price_currency TEXT NOT NULL DEFAULT 'POINTS',
+      available_seats INTEGER NOT NULL,
+      total_seats INTEGER NOT NULL,
+      car_model TEXT DEFAULT '',
+      car_color TEXT DEFAULT '',
+      car_plate TEXT DEFAULT '',
+      allows_luggage INTEGER NOT NULL DEFAULT 1,
+      accept_cash INTEGER NOT NULL DEFAULT 1,
+      accept_wallet INTEGER NOT NULL DEFAULT 1,
+      women_only INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'UPCOMING',
+      meeting_point TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS bookings (
+      id TEXT PRIMARY KEY,
+      ride_id TEXT NOT NULL REFERENCES rides(id),
+      passenger_id BIGINT NOT NULL REFERENCES users(id),
+      seats_booked INTEGER NOT NULL,
+      total_points REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'UPCOMING',
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id TEXT PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id),
+      type TEXT NOT NULL,
+      points INTEGER NOT NULL,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'COMPLETED',
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS topup_requests (
+      id TEXT PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id),
+      package_points INTEGER NOT NULL,
+      package_price_usd REAL NOT NULL DEFAULT 0,
+      receipt_image_path TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      rejection_reason TEXT,
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS requested_trips (
+      id TEXT PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id),
+      start_city TEXT NOT NULL,
+      end_city TEXT NOT NULL,
+      departure_date TEXT NOT NULL,
+      departure_time TEXT NOT NULL,
+      men_count INTEGER NOT NULL DEFAULT 1,
+      women_count INTEGER NOT NULL DEFAULT 0,
+      children_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      accepted_by_driver_id BIGINT,
+      accepted_by_driver_name TEXT,
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      ride_id TEXT NOT NULL REFERENCES rides(id),
+      sender_id BIGINT NOT NULL REFERENCES users(id),
+      receiver_id BIGINT NOT NULL REFERENCES users(id),
+      message_text TEXT NOT NULL,
+      image_uri TEXT,
+      is_location INTEGER NOT NULL DEFAULT 0,
+      latitude REAL,
+      longitude REAL,
+      is_payment_reminder INTEGER NOT NULL DEFAULT 0,
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id),
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      type TEXT NOT NULL,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rides_search
+      ON rides(start_city, end_city, departure_date);
+
+    CREATE INDEX IF NOT EXISTS idx_bookings_passenger
+      ON bookings(passenger_id);
+
+    CREATE INDEX IF NOT EXISTS idx_rides_driver
+      ON rides(driver_id);
+  `);
+
+  console.log('PostgreSQL database initialized');
 }
 
-function getUserByTelegramId(telegramId) {
-  return db
-    .prepare(
-      "SELECT * FROM users WHERE telegram_id = ?"
-    )
-    .get(String(telegramId));
+async function getUserById(id) {
+  const result = await pool.query(
+    'SELECT * FROM users WHERE id = $1',
+    [id]
+  );
+
+  return result.rows[0] || null;
 }
 
-function createUser(data) {
+async function getUserByTelegramId(telegramId) {
+  const result = await pool.query(
+    'SELECT * FROM users WHERE telegram_id = $1',
+    [String(telegramId)]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function createUser(data) {
   let referralCode;
 
   do {
     referralCode = makeReferralCode();
-  } while (
-    db
-      .prepare(
-        "SELECT id FROM users WHERE referral_code = ?"
-      )
-      .get(referralCode)
-  );
 
-  const result = db
-    .prepare(`
+    const check = await pool.query(
+      'SELECT id FROM users WHERE referral_code = $1',
+      [referralCode]
+    );
+
+    if (check.rows.length === 0) break;
+  } while (true);
+
+  const result = await pool.query(
+    `
       INSERT INTO users
       (
         telegram_id,
@@ -214,149 +208,151 @@ function createUser(data) {
         role,
         referral_code
       )
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
-    .run(
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `,
+    [
       data.telegram_id
         ? String(data.telegram_id)
         : null,
-      data.name || "مستخدم وصلني",
+      data.name || 'مستخدم وصلني',
       data.email || null,
       data.phone || null,
-      data.role || "passenger",
+      data.role || 'passenger',
       referralCode
-    );
-
-  return getUserById(
-    result.lastInsertRowid
+    ]
   );
+
+  return result.rows[0];
 }
 
-function getOrCreateTelegramUser(data) {
-  let user =
-    getUserByTelegramId(data.telegram_id);
+async function getOrCreateTelegramUser(data) {
+  let user = null;
+
+  if (data.telegram_id) {
+    user = await getUserByTelegramId(data.telegram_id);
+  }
 
   if (user) {
-    db.prepare(`
-      UPDATE users
-      SET name = ?,
-          telegram_id = ?
-      WHERE id = ?
-    `).run(
-      data.name || user.name,
-      String(data.telegram_id),
-      user.id
+    await pool.query(
+      `
+        UPDATE users
+        SET name = $1,
+            telegram_id = $2
+        WHERE id = $3
+      `,
+      [
+        data.name || user.name,
+        String(data.telegram_id),
+        user.id
+      ]
     );
 
     return getUserById(user.id);
   }
 
-  user = createUser(data);
+  user = await createUser(data);
 
   if (
     data.referral_code &&
     data.referral_code !== user.referral_code
   ) {
-    const inviter = db
-      .prepare(`
+    const inviterResult = await pool.query(
+      `
         SELECT *
         FROM users
-        WHERE referral_code = ?
-      `)
-      .get(data.referral_code);
+        WHERE referral_code = $1
+      `,
+      [data.referral_code]
+    );
 
-    if (
-      inviter &&
-      inviter.id !== user.id
-    ) {
-      db.prepare(`
-        UPDATE users
-        SET referred_by = ?
-        WHERE id = ?
-      `).run(
-        inviter.id,
-        user.id
+    const inviter = inviterResult.rows[0];
+
+    if (inviter && inviter.id !== user.id) {
+      await pool.query(
+        `
+          UPDATE users
+          SET referred_by = $1
+          WHERE id = $2
+        `,
+        [inviter.id, user.id]
       );
 
       const points = Number(
         process.env.POINTS_PER_REFERRAL || 100
       );
 
-      addPoints(
+      await addPoints(
         inviter.id,
         points,
-        "مكافأة دعوة مستخدم جديد"
+        'مكافأة دعوة مستخدم جديد'
       );
 
-      addPoints(
+      await addPoints(
         user.id,
         points,
-        "مكافأة التسجيل بالإحالة"
+        'مكافأة التسجيل بالإحالة'
       );
     }
   }
 
-  return user;
+  return getUserById(user.id);
 }
 
-function updateUser(id, fields) {
+async function updateUser(id, fields) {
   const allowed = [
-    "name",
-    "email",
-    "phone",
-    "avatar_url",
-    "role",
-    "is_verified",
-    "is_suspended",
-    "suspend_reason"
+    'name',
+    'email',
+    'phone',
+    'avatar_url',
+    'role',
+    'is_verified',
+    'is_suspended',
+    'suspend_reason'
   ];
 
-  const keys =
-    Object.keys(fields).filter(
-      key => allowed.includes(key)
-    );
+  const keys = Object.keys(fields).filter(
+    key => allowed.includes(key)
+  );
 
   if (!keys.length) {
     return getUserById(id);
   }
 
-  const sql = `
-    UPDATE users
-    SET ${keys
-      .map(key => `${key} = ?`)
-      .join(", ")}
-    WHERE id = ?
-  `;
+  const values = keys.map(key => fields[key]);
+  const setClause = keys
+    .map((key, index) => `${key} = $${index + 1}`)
+    .join(', ');
 
-  db.prepare(sql).run(
-    ...keys.map(
-      key => fields[key]
-    ),
-    id
+  await pool.query(
+    `
+      UPDATE users
+      SET ${setClause}
+      WHERE id = $${keys.length + 1}
+    `,
+    [...values, id]
   );
 
   return getUserById(id);
 }
 
-function addPoints(
-  userId,
-  points,
-  description
-) {
-  const transaction =
-    db.transaction(() => {
+async function addPoints(userId, points, description) {
+  const client = await pool.connect();
 
-      db.prepare(`
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      `
         UPDATE users
-        SET wallet_points =
-          wallet_points + ?
-        WHERE id = ?
-      `).run(
-        points,
-        userId
-      );
+        SET wallet_points = wallet_points + $1
+        WHERE id = $2
+      `,
+      [points, userId]
+    );
 
-      db.prepare(`
+    await client.query(
+      `
         INSERT INTO wallet_transactions
         (
           id,
@@ -365,49 +361,61 @@ function addPoints(
           points,
           description
         )
-        VALUES (?, ?, 'TOP_UP', ?, ?)
-      `).run(
-        makeId("tx"),
+        VALUES ($1, $2, 'TOP_UP', $3, $4)
+      `,
+      [
+        makeId('tx'),
         userId,
         points,
         description
-      );
-    });
+      ]
+    );
 
-  transaction();
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
   return getUserById(userId);
 }
 
-function deductPoints(
-  userId,
-  points,
-  description
-) {
-  const user =
-    getUserById(userId);
+async function deductPoints(userId, points, description) {
+  const client = await pool.connect();
 
-  if (
-    !user ||
-    user.wallet_points < points
-  ) {
-    return false;
-  }
+  try {
+    await client.query('BEGIN');
 
-  const transaction =
-    db.transaction(() => {
+    const userResult = await client.query(
+      `
+        SELECT *
+        FROM users
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [userId]
+    );
 
-      db.prepare(`
+    const user = userResult.rows[0];
+
+    if (!user || Number(user.wallet_points) < Number(points)) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+
+    await client.query(
+      `
         UPDATE users
-        SET wallet_points =
-          wallet_points - ?
-        WHERE id = ?
-      `).run(
-        points,
-        userId
-      );
+        SET wallet_points = wallet_points - $1
+        WHERE id = $2
+      `,
+      [points, userId]
+    );
 
-      db.prepare(`
+    await client.query(
+      `
         INSERT INTO wallet_transactions
         (
           id,
@@ -416,75 +424,89 @@ function deductPoints(
           points,
           description
         )
-        VALUES (?, ?, 'DEDUCTION', ?, ?)
-      `).run(
-        makeId("tx"),
+        VALUES ($1, $2, 'DEDUCTION', $3, $4)
+      `,
+      [
+        makeId('tx'),
         userId,
         points,
         description
-      );
-    });
+      ]
+    );
 
-  transaction();
+    await client.query('COMMIT');
 
-  return true;
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-function createRide(data) {
-  const id = makeId("ride");
+async function createRide(data) {
+  const id = makeId('ride');
 
-  db.prepare(`
-    INSERT INTO rides
-    (
+  await pool.query(
+    `
+      INSERT INTO rides
+      (
+        id,
+        driver_id,
+        start_city,
+        end_city,
+        departure_date,
+        departure_time,
+        duration,
+        price_per_seat,
+        available_seats,
+        total_seats,
+        car_model,
+        car_color,
+        car_plate,
+        allows_luggage,
+        accept_cash,
+        accept_wallet,
+        women_only,
+        meeting_point,
+        notes
+      )
+      VALUES
+      (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+        $11,$12,$13,$14,$15,$16,$17,$18,$19
+      )
+    `,
+    [
       id,
-      driver_id,
-      start_city,
-      end_city,
-      departure_date,
-      departure_time,
-      duration,
-      price_per_seat,
-      available_seats,
-      total_seats,
-      car_model,
-      car_color,
-      car_plate,
-      allows_luggage,
-      accept_cash,
-      accept_wallet,
-      women_only,
-      meeting_point,
-      notes
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    data.driver_id,
-    data.start_city,
-    data.end_city,
-    data.departure_date,
-    data.departure_time,
-    data.duration || "",
-    data.price_per_seat,
-    data.total_seats,
-    data.total_seats,
-    data.car_model || "",
-    data.car_color || "",
-    data.car_plate || "",
-    data.allows_luggage ? 1 : 0,
-    data.accept_cash ? 1 : 0,
-    data.accept_wallet ? 1 : 0,
-    data.women_only ? 1 : 0,
-    data.meeting_point || "",
-    data.notes || ""
+      data.driver_id,
+      data.start_city,
+      data.end_city,
+      data.departure_date,
+      data.departure_time,
+      data.duration || '',
+      data.price_per_seat,
+      data.total_seats,
+      data.total_seats,
+      data.car_model || '',
+      data.car_color || '',
+      data.car_plate || '',
+      data.allows_luggage ? 1 : 0,
+      data.accept_cash ? 1 : 0,
+      data.accept_wallet ? 1 : 0,
+      data.women_only ? 1 : 0,
+      data.meeting_point || '',
+      data.notes || ''
+    ]
   );
 
   return getRideById(id);
 }
 
-function getRideById(id) {
-  return db
-    .prepare(`
+async function getRideById(id) {
+  const result = await pool.query(
+    `
       SELECT
         rides.*,
         users.name AS driver_name,
@@ -493,18 +515,16 @@ function getRideById(id) {
         users.rating_count AS driver_rating_count,
         users.is_verified AS driver_verified
       FROM rides
-      JOIN users
-        ON users.id = rides.driver_id
-      WHERE rides.id = ?
-    `)
-    .get(id);
+      JOIN users ON users.id = rides.driver_id
+      WHERE rides.id = $1
+    `,
+    [id]
+  );
+
+  return result.rows[0] || null;
 }
 
-function searchRides(
-  startCity,
-  endCity,
-  date
-) {
+async function searchRides(startCity, endCity, date) {
   let sql = `
     SELECT
       rides.*,
@@ -514,8 +534,7 @@ function searchRides(
       users.rating_count AS driver_rating_count,
       users.is_verified AS driver_verified
     FROM rides
-    JOIN users
-      ON users.id = rides.driver_id
+    JOIN users ON users.id = rides.driver_id
     WHERE rides.status = 'UPCOMING'
       AND rides.available_seats > 0
   `;
@@ -523,29 +542,26 @@ function searchRides(
   const params = [];
 
   if (startCity) {
+    params.push(`%${startCity}%`);
     sql += `
       AND LOWER(rides.start_city)
-      LIKE LOWER(?)
+      LIKE LOWER($${params.length})
     `;
-
-    params.push(`%${startCity}%`);
   }
 
   if (endCity) {
+    params.push(`%${endCity}%`);
     sql += `
       AND LOWER(rides.end_city)
-      LIKE LOWER(?)
+      LIKE LOWER($${params.length})
     `;
-
-    params.push(`%${endCity}%`);
   }
 
   if (date) {
-    sql += `
-      AND rides.departure_date = ?
-    `;
-
     params.push(date);
+    sql += `
+      AND rides.departure_date = $${params.length}
+    `;
   }
 
   sql += `
@@ -555,123 +571,175 @@ function searchRides(
     LIMIT 50
   `;
 
-  return db
-    .prepare(sql)
-    .all(...params);
+  const result = await pool.query(sql, params);
+
+  return result.rows;
 }
 
-function createBooking(
+async function getRidesByDriver(driverId) {
+  const result = await pool.query(
+    `
+      SELECT *
+      FROM rides
+      WHERE driver_id = $1
+      ORDER BY created_at DESC
+    `,
+    [driverId]
+  );
+
+  return result.rows;
+}
+
+async function createBooking(
   rideId,
   passengerId,
   seats
 ) {
-  return db.transaction(() => {
+  const client = await pool.connect();
 
-    const ride =
-      getRideById(rideId);
+  try {
+    await client.query('BEGIN');
+
+    const rideResult = await client.query(
+      `
+        SELECT *
+        FROM rides
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [rideId]
+    );
+
+    const ride = rideResult.rows[0];
 
     if (!ride) {
-      throw new Error(
-        "RIDE_NOT_FOUND"
-      );
+      throw new Error('RIDE_NOT_FOUND');
     }
 
-    if (
-      ride.available_seats < seats
-    ) {
-      throw new Error(
-        "NOT_ENOUGH_SEATS"
-      );
+    if (Number(ride.available_seats) < Number(seats)) {
+      throw new Error('NOT_ENOUGH_SEATS');
     }
 
-    if (
-      ride.driver_id === passengerId
-    ) {
-      throw new Error(
-        "SELF_BOOKING"
-      );
+    if (Number(ride.driver_id) === Number(passengerId)) {
+      throw new Error('SELF_BOOKING');
     }
 
-    const existing =
-      db.prepare(`
+    const existing = await client.query(
+      `
         SELECT *
         FROM bookings
-        WHERE ride_id = ?
-          AND passenger_id = ?
+        WHERE ride_id = $1
+          AND passenger_id = $2
           AND status = 'UPCOMING'
-      `).get(
-        rideId,
-        passengerId
-      );
+      `,
+      [rideId, passengerId]
+    );
 
-    if (existing) {
-      throw new Error(
-        "ALREADY_BOOKED"
-      );
+    if (existing.rows.length) {
+      throw new Error('ALREADY_BOOKED');
     }
 
     const total =
       Number(ride.price_per_seat) *
-      seats;
+      Number(seats);
+
+    const userResult = await client.query(
+      `
+        SELECT *
+        FROM users
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [passengerId]
+    );
+
+    const user = userResult.rows[0];
 
     if (
-      !deductPoints(
+      !user ||
+      Number(user.wallet_points) < total
+    ) {
+      throw new Error('INSUFFICIENT_BALANCE');
+    }
+
+    await client.query(
+      `
+        UPDATE users
+        SET wallet_points = wallet_points - $1
+        WHERE id = $2
+      `,
+      [total, passengerId]
+    );
+
+    await client.query(
+      `
+        INSERT INTO wallet_transactions
+        (
+          id,
+          user_id,
+          type,
+          points,
+          description
+        )
+        VALUES
+        ($1, $2, 'DEDUCTION', $3, $4)
+      `,
+      [
+        makeId('tx'),
         passengerId,
         total,
         `حجز الرحلة ${rideId}`
-      )
-    ) {
-      throw new Error(
-        "INSUFFICIENT_BALANCE"
-      );
-    }
-
-    db.prepare(`
-      UPDATE rides
-      SET available_seats =
-        available_seats - ?
-      WHERE id = ?
-    `).run(
-      seats,
-      rideId
+      ]
     );
 
-    const bookingId =
-      makeId("booking");
-
-    db.prepare(`
-      INSERT INTO bookings
-      (
-        id,
-        ride_id,
-        passenger_id,
-        seats_booked,
-        total_points
-      )
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      bookingId,
-      rideId,
-      passengerId,
-      seats,
-      total
+    await client.query(
+      `
+        UPDATE rides
+        SET available_seats =
+          available_seats - $1
+        WHERE id = $2
+      `,
+      [seats, rideId]
     );
 
-    return db
-      .prepare(`
-        SELECT *
-        FROM bookings
-        WHERE id = ?
-      `)
-      .get(bookingId);
-  })();
+    const bookingId = makeId('booking');
+
+    const bookingResult = await client.query(
+      `
+        INSERT INTO bookings
+        (
+          id,
+          ride_id,
+          passenger_id,
+          seats_booked,
+          total_points
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+      `,
+      [
+        bookingId,
+        rideId,
+        passengerId,
+        seats,
+        total
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    return bookingResult.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-function getBookingsByPassenger(
-  passengerId
-) {
-  return db
-    .prepare(`
+async function getBookingsByPassenger(passengerId) {
+  const result = await pool.query(
+    `
       SELECT
         bookings.*,
         rides.start_city,
@@ -682,179 +750,65 @@ function getBookingsByPassenger(
         rides.driver_id,
         users.name AS driver_name
       FROM bookings
-      JOIN rides
-        ON rides.id = bookings.ride_id
-      JOIN users
-        ON users.id = rides.driver_id
-      WHERE bookings.passenger_id = ?
+      JOIN rides ON rides.id = bookings.ride_id
+      JOIN users ON users.id = rides.driver_id
+      WHERE bookings.passenger_id = $1
       ORDER BY bookings.created_at DESC
-    `)
-    .all(passengerId);
+    `,
+    [passengerId]
+  );
+
+  return result.rows;
 }
 
-function getRidesByDriver(
-  driverId
-) {
-  return db
-    .prepare(`
-      SELECT *
-      FROM rides
-      WHERE driver_id = ?
-      ORDER BY created_at DESC
-    `)
-    .all(driverId);
-}
-
-function getWalletTransactions(
-  userId
-) {
-  return db
-    .prepare(`
+async function getWalletTransactions(userId) {
+  const result = await pool.query(
+    `
       SELECT *
       FROM wallet_transactions
-      WHERE user_id = ?
+      WHERE user_id = $1
       ORDER BY created_at DESC
       LIMIT 50
-    `)
-    .all(userId);
+    `,
+    [userId]
+  );
+
+  return result.rows;
 }
 
-function createTopupRequest(
+async function createTopupRequest(
   userId,
   points,
   amountUsd = 0
 ) {
-  const id = makeId("topup");
+  const id = makeId('topup');
 
-  db.prepare(`
-    INSERT INTO topup_requests
-    (
+  const result = await pool.query(
+    `
+      INSERT INTO topup_requests
+      (
+        id,
+        user_id,
+        package_points,
+        package_price_usd
+      )
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `,
+    [
       id,
-      user_id,
-      package_points,
-      package_price_usd
-    )
-    VALUES (?, ?, ?, ?)
-  `).run(
-    id,
-    userId,
-    points,
-    amountUsd
+      userId,
+      points,
+      amountUsd
+    ]
   );
 
-  return db
-    .prepare(`
-      SELECT *
-      FROM topup_requests
-      WHERE id = ?
-    `)
-    .get(id);
+  return result.rows[0];
 }
 
-function getPendingTopups() {
-  return db
-    .prepare(`
-      SELECT
-        topup_requests.*,
-        users.name,
-        users.telegram_id
-      FROM topup_requests
-      JOIN users
-        ON users.id = topup_requests.user_id
-      WHERE topup_requests.status = 'PENDING'
-      ORDER BY topup_requests.created_at ASC
-    `)
-    .all();
-}
-
-function approveTopup(id) {
-  return db.transaction(() => {
-
-    const request =
-      db.prepare(`
-        SELECT *
-        FROM topup_requests
-        WHERE id = ?
-          AND status = 'PENDING'
-      `).get(id);
-
-    if (!request) {
-      return null;
-    }
-
-    db.prepare(`
-      UPDATE topup_requests
-      SET status = 'APPROVED'
-      WHERE id = ?
-    `).run(id);
-
-    addPoints(
-      request.user_id,
-      request.package_points,
-      `تمت الموافقة على طلب الشحن ${id}`
-    );
-
-    return request;
-  })();
-}
-
-function rejectTopup(
-  id,
-  reason
-) {
-  return db.prepare(`
-    UPDATE topup_requests
-    SET status = 'REJECTED',
-        rejection_reason = ?
-    WHERE id = ?
-      AND status = 'PENDING'
-  `).run(
-    reason || "",
-    id
-  ).changes > 0;
-}
-
-function createRequestedTrip(data) {
-  const id =
-    makeId("request");
-
-  db.prepare(`
-    INSERT INTO requested_trips
-    (
-      id,
-      user_id,
-      start_city,
-      end_city,
-      departure_date,
-      departure_time,
-      men_count,
-      women_count,
-      children_count
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    data.user_id,
-    data.start_city,
-    data.end_city,
-    data.departure_date,
-    data.departure_time,
-    data.men_count || 1,
-    data.women_count || 0,
-    data.children_count || 0
-  );
-
-  return db
-    .prepare(`
-      SELECT *
-      FROM requested_trips
-      WHERE id = ?
-    `).get(id);
-}
-
-function getRequestedTrips() {
-  return db
-    .prepare(`
+async function getRequestedTrips() {
+  const result = await pool.query(
+    `
       SELECT
         requested_trips.*,
         users.name AS user_name,
@@ -864,89 +818,148 @@ function getRequestedTrips() {
         ON users.id = requested_trips.user_id
       WHERE requested_trips.status = 'OPEN'
       ORDER BY requested_trips.created_at DESC
-    `)
-    .all();
-}
-
-function createChatMessage(data) {
-  const id =
-    makeId("msg");
-
-  db.prepare(`
-    INSERT INTO chat_messages
-    (
-      id,
-      ride_id,
-      sender_id,
-      receiver_id,
-      message_text
-    )
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    id,
-    data.ride_id,
-    data.sender_id,
-    data.receiver_id,
-    data.message_text
+    `
   );
 
-  return db
-    .prepare(`
-      SELECT *
-      FROM chat_messages
-      WHERE id = ?
-    `).get(id);
+  return result.rows;
 }
 
-function getChatMessages(rideId) {
-  return db
-    .prepare(`
+async function createRequestedTrip(data) {
+  const id = makeId('request');
+
+  const result = await pool.query(
+    `
+      INSERT INTO requested_trips
+      (
+        id,
+        user_id,
+        start_city,
+        end_city,
+        departure_date,
+        departure_time,
+        men_count,
+        women_count,
+        children_count
+      )
+      VALUES
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      RETURNING *
+    `,
+    [
+      id,
+      data.user_id,
+      data.start_city,
+      data.end_city,
+      data.departure_date,
+      data.departure_time,
+      data.men_count || 1,
+      data.women_count || 0,
+      data.children_count || 0
+    ]
+  );
+
+  return result.rows[0];
+}
+
+async function createChatMessage(data) {
+  const id = makeId('msg');
+
+  const result = await pool.query(
+    `
+      INSERT INTO chat_messages
+      (
+        id,
+        ride_id,
+        sender_id,
+        receiver_id,
+        message_text,
+        image_uri,
+        is_location,
+        latitude,
+        longitude,
+        is_payment_reminder
+      )
+      VALUES
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      RETURNING *
+    `,
+    [
+      id,
+      data.ride_id,
+      data.sender_id,
+      data.receiver_id,
+      data.message_text,
+      data.image_uri || null,
+      data.is_location ? 1 : 0,
+      data.latitude || null,
+      data.longitude || null,
+      data.is_payment_reminder ? 1 : 0
+    ]
+  );
+
+  return result.rows[0];
+}
+
+async function getChatMessages(rideId) {
+  const result = await pool.query(
+    `
       SELECT *
       FROM chat_messages
-      WHERE ride_id = ?
+      WHERE ride_id = $1
       ORDER BY created_at ASC
-    `)
-    .all(rideId);
+    `,
+    [rideId]
+  );
+
+  return result.rows;
 }
 
-function getStats() {
-  return {
-    users: db
-      .prepare(
-        "SELECT COUNT(*) count FROM users"
-      )
-      .get().count,
-
-    rides: db
-      .prepare(
-        "SELECT COUNT(*) count FROM rides"
-      )
-      .get().count,
-
-    bookings: db
-      .prepare(
-        "SELECT COUNT(*) count FROM bookings"
-      )
-      .get().count,
-
-    points: db
-      .prepare(
-        "SELECT COALESCE(SUM(wallet_points),0) points FROM users"
-      )
-      .get().points,
-
-    pendingTopups: db
-      .prepare(`
-        SELECT COUNT(*) count
+async function getStats() {
+  const [
+    users,
+    rides,
+    bookings,
+    points,
+    pendingTopups
+  ] = await Promise.all([
+    pool.query('SELECT COUNT(*)::INTEGER AS count FROM users'),
+    pool.query('SELECT COUNT(*)::INTEGER AS count FROM rides'),
+    pool.query('SELECT COUNT(*)::INTEGER AS count FROM bookings'),
+    pool.query(
+      'SELECT COALESCE(SUM(wallet_points),0)::INTEGER AS points FROM users'
+    ),
+    pool.query(
+      `
+        SELECT COUNT(*)::INTEGER AS count
         FROM topup_requests
         WHERE status = 'PENDING'
-      `)
-      .get().count
+      `
+    )
+  ]);
+
+  return {
+    users: users.rows[0].count,
+    rides: rides.rows[0].count,
+    bookings: bookings.rows[0].count,
+    points: points.rows[0].points,
+    pendingTopups: pendingTopups.rows[0].count
   };
 }
 
+async function getDatabase() {
+  return pool;
+}
+
+initDatabase().catch(error => {
+  console.error('PostgreSQL initialization failed:', error);
+  process.exit(1);
+});
+
 module.exports = {
-  db,
+  db: pool,
+  pool,
+  getDatabase,
+  initDatabase,
   getUserById,
   getUserByTelegramId,
   createUser,
@@ -962,11 +975,8 @@ module.exports = {
   getRidesByDriver,
   getWalletTransactions,
   createTopupRequest,
-  getPendingTopups,
-  approveTopup,
-  rejectTopup,
-  createRequestedTrip,
   getRequestedTrips,
+  createRequestedTrip,
   createChatMessage,
   getChatMessages,
   getStats
