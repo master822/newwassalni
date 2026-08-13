@@ -430,6 +430,73 @@ app.post("/api/requests", async (req, res) => {
   }
 });
 
+// Atomically accept an OPEN requested trip.
+// The database condition status='OPEN' makes concurrent acceptance safe.
+app.post("/api/requests/:requestId/accept", async (req, res) => {
+  try {
+    const requestId = String(req.params.requestId || "").trim();
+    const driverId = Number(req.body.driver_id);
+    const driverName = String(req.body.driver_name || "").trim();
+
+    if (!requestId || !Number.isInteger(driverId) || driverId <= 0 || !driverName) {
+      return res.status(400).json({
+        ok: false,
+        error: "DRIVER_DATA_REQUIRED"
+      });
+    }
+
+    const result = await db.pool.query(
+      `
+        UPDATE requested_trips
+        SET
+          status = 'ACCEPTED',
+          accepted_by_driver_id = $2,
+          accepted_by_driver_name = $3
+        WHERE id = $1
+          AND status = 'OPEN'
+        RETURNING *
+      `,
+      [requestId, driverId, driverName]
+    );
+
+    if (result.rowCount !== 1) {
+      return res.status(409).json({
+        ok: false,
+        error: "REQUEST_NOT_AVAILABLE"
+      });
+    }
+
+    const accepted = result.rows[0];
+
+    const userResult = await db.pool.query(
+      `
+        SELECT name, phone
+        FROM users
+        WHERE id = $1
+      `,
+      [accepted.user_id]
+    );
+
+    const user = userResult.rows[0] || {};
+
+    res.json({
+      ok: true,
+      data: {
+        ...accepted,
+        user_name: user.name || null,
+        user_phone: user.phone || null
+      }
+    });
+  } catch (error) {
+    console.error("ACCEPT REQUEST ERROR:", error);
+
+    res.status(500).json({
+      ok: false,
+      error: "ACCEPT_REQUEST_FAILED"
+    });
+  }
+});
+
 // ===============================
 // CHAT
 // ===============================
