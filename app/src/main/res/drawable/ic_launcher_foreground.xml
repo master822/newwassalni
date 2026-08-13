@@ -1,8 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="72dp"
-        android:height="72dp"
-        android:drawable="@drawable/wasalni_icon_hd_1786189057837"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Modern Geometric W styled as Intertwining Roads -->
+    <!-- Left Road Leg -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,34 L32,34 L44,76 L36,76 Z" />
+    
+    <!-- Left Center Incline -->
+    <path
+        android:fillColor="#E3F0EB"
+        android:pathData="M36,76 L44,76 L54,44 L46,44 Z" />
+    
+    <!-- Right Center Decline -->
+    <path
+        android:fillColor="#E3F0EB"
+        android:pathData="M54,44 L62,44 L72,76 L64,76 Z" />
+        
+    <!-- Right Road Leg -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M64,76 L72,76 L84,34 L76,34 Z" />
+
+    <!-- Center Road Dotted Line / Route Connection -->
+    <path
+        android:fillColor="#D4AF37"
+        android:pathData="M52,50 L56,50 L55,62 L53,62 Z" />
+
+    <!-- Sleek Golden Location Pin at Top Center Intersection -->
+    <!-- Pin Outer Glow / Base -->
+    <path
+        android:fillColor="#D4AF37"
+        android:pathData="M54,22 C49.58,22 46,25.58 46,30 C46,36.2 54,43 54,43 C54,43 62,36.2 62,30 C62,25.58 58.42,22 54,22 Z" />
+    
+    <!-- Pin Inner Dot -->
+    <path
+        android:fillColor="#0F3D31"
+        android:pathData="M54,27.5 C52.62,27.5 51.5,28.62 51.5,30 C51.5,31.38 52.62,32.5 54,32.5 C55.38,32.5 56.5,31.38 56.5,30 C56.5,28.62 55.38,27.5 54,27.5 Z" />
+
+</vector>

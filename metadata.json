@@ -1,6 +1,6 @@
 {
   "name": "وصلني",
-  "description": "تطبيق مشاركة الرحلات مع محفظة إلكترونية خاصة ونظام نقاط",
+  "description": "منصة مشاركة وطلب الرحلات بين المدن - نسافر معاً، نوصل بأمان",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

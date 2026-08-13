@@ -21,15 +21,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.*
 import com.example.ui.components.GlassCard
-import com.example.ui.theme.AppStrings
-import com.example.ui.theme.TrueBlue
+import com.example.ui.theme.*
 import com.example.viewmodel.AppViewModel
 
 @Composable
@@ -55,25 +53,66 @@ fun AdminDashboardScreen(
     var userToSuspend by remember { mutableStateOf<UserEntity?>(null) }
     var suspendReasonText by remember { mutableStateOf("") }
 
+    var userToEdit by remember { mutableStateOf<UserEntity?>(null) }
+    var editUserName by remember { mutableStateOf("") }
+    var editUserPhone by remember { mutableStateOf("") }
+    var editUserRole by remember { mutableStateOf("PASSENGER") }
+    var editUserPoints by remember { mutableStateOf("50") }
+
+    var userToAdjustWallet by remember { mutableStateOf<UserEntity?>(null) }
+    var adjustPointsDelta by remember { mutableStateOf("") }
+    var adjustPointsReason by remember { mutableStateOf("") }
+    var isPointsAddition by remember { mutableStateOf(true) }
+
     var userToChatWith by remember { mutableStateOf<UserEntity?>(null) }
     var userToViewDetails by remember { mutableStateOf<UserEntity?>(null) }
     var adminChatMessageText by remember { mutableStateOf("") }
     var adminAttachedImageUri by remember { mutableStateOf<String?>(null) }
 
+    var messageToEdit by remember { mutableStateOf<ChatMessageEntity?>(null) }
+    var editMessageNewText by remember { mutableStateOf("") }
+
     var rideToCancel by remember { mutableStateOf<RideEntity?>(null) }
     var cancelRideReasonText by remember { mutableStateOf("") }
+
+    var rideToEdit by remember { mutableStateOf<RideEntity?>(null) }
+    var editRideStartCity by remember { mutableStateOf("") }
+    var editRideEndCity by remember { mutableStateOf("") }
+    var editRideDate by remember { mutableStateOf("") }
+    var editRideTime by remember { mutableStateOf("") }
+    var editRidePrice by remember { mutableStateOf("") }
+    var editRideSeats by remember { mutableStateOf("") }
+
+    var requestedTripToEdit by remember { mutableStateOf<RequestedTripEntity?>(null) }
+    var editReqStartCity by remember { mutableStateOf("") }
+    var editReqEndCity by remember { mutableStateOf("") }
+    var editReqDate by remember { mutableStateOf("") }
+    var editReqTime by remember { mutableStateOf("") }
+    var editReqMen by remember { mutableStateOf("1") }
+    var editReqWomen by remember { mutableStateOf("0") }
+    var editReqChildren by remember { mutableStateOf("0") }
 
     var selectedTicketForReply by remember { mutableStateOf<SupportTicket?>(null) }
     var ticketReplyText by remember { mutableStateOf("") }
 
-    // Password change states
-    var oldAdminPass by remember { mutableStateOf("") }
-    var newAdminPass by remember { mutableStateOf("") }
-    var confirmAdminPass by remember { mutableStateOf("") }
+    // Remote dynamic configuration
+    val currentAppName by viewModel.appName.collectAsState()
+    val currentAppTagline by viewModel.appTagline.collectAsState()
+    val currentAppLogoUrl by viewModel.appLogoUrl.collectAsState()
+    val currentDynamicIconVariant by viewModel.dynamicIconVariant.collectAsState()
+    val currentIsMaintenance by viewModel.isMaintenanceMode.collectAsState()
 
-    // Push Notif states
-    var notifTitleText by remember { mutableStateOf("") }
-    var notifBodyText by remember { mutableStateOf("") }
+    var configAppName by remember(currentAppName) { mutableStateOf(currentAppName) }
+    var configAppTagline by remember(currentAppTagline) { mutableStateOf(currentAppTagline) }
+    var configAppLogoUrl by remember(currentAppLogoUrl) { mutableStateOf(currentAppLogoUrl) }
+    var configIconVariant by remember(currentDynamicIconVariant) { mutableStateOf(currentDynamicIconVariant) }
+    var configIsMaintenance by remember(currentIsMaintenance) { mutableStateOf(currentIsMaintenance) }
+
+    // Push & Broadcast Notif states
+    var broadcastTitleText by remember { mutableStateOf("") }
+    var broadcastBodyText by remember { mutableStateOf("") }
+    var broadcastAudience by remember { mutableStateOf("ALL") } // ALL, DRIVERS, PASSENGERS
+    var broadcastType by remember { mutableStateOf("SYSTEM") }
 
     // Settings states from VM
     val publishCost by viewModel.ridePublishCost.collectAsState()
@@ -84,15 +123,20 @@ fun AdminDashboardScreen(
     val currentShamCashAccount by viewModel.shamCashAccount.collectAsState()
     val currentAppDownloadUrl by viewModel.appDownloadUrl.collectAsState()
 
+    var shamCashInput by remember(currentShamCashAccount) { mutableStateOf(currentShamCashAccount) }
+    var appDownloadUrlInput by remember(currentAppDownloadUrl) { mutableStateOf(currentAppDownloadUrl) }
+
     val activityLogs by viewModel.adminActivityLogs.collectAsState()
     val loginLogs by viewModel.adminLoginLogs.collectAsState()
     val supportTickets by viewModel.supportTickets.collectAsState()
     val homeBanners by viewModel.homeBanners.collectAsState()
+    val requestedTrips by viewModel.requestedTrips.collectAsState()
 
     val allWalletTransactions by viewModel.allWalletTransactions.collectAsState()
     val allChatMessages by viewModel.allChatMessages.collectAsState()
 
     var previewReceiptUri by remember { mutableStateOf<String?>(null) }
+    var selectedRideChatRoom by remember { mutableStateOf<String?>(null) }
 
     val totalRevenue = topUpRequests.filter { it.status == RequestStatus.APPROVED.name }.sumOf { it.packagePriceUsd }
     val totalPointsSold = topUpRequests.filter { it.status == RequestStatus.APPROVED.name }.sumOf { it.packagePoints }
@@ -125,15 +169,15 @@ fun AdminDashboardScreen(
                 Spacer(modifier = Modifier.width(4.dp))
                 Column {
                     Text(
-                        text = "لوحة تحكم المشغل الرئيسية",
-                        fontSize = 17.sp,
+                        text = "لوحة تحكم المشغل الرئيسية (Super Admin)",
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "المشغل الرئيسي (Super Admin)",
-                        fontSize = 11.sp,
-                        color = TrueBlue,
+                        text = "التحكم الشامل بجميع المستخدمين، الرحلات، المحادثات والأرصدة",
+                        fontSize = 10.sp,
+                        color = PrimaryGreen,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -141,7 +185,7 @@ fun AdminDashboardScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    color = TrueBlue.copy(alpha = 0.15f),
+                    color = GoldAccent.copy(alpha = 0.2f),
                     shape = CircleShape
                 ) {
                     Row(
@@ -149,8 +193,8 @@ fun AdminDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(Icons.Filled.Shield, contentDescription = null, tint = TrueBlue, modifier = Modifier.size(14.dp))
-                        Text("Super Admin", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TrueBlue)
+                        Icon(Icons.Filled.Shield, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(14.dp))
+                        Text("Super Admin", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen)
                     }
                 }
 
@@ -177,19 +221,25 @@ fun AdminDashboardScreen(
             GlassCard(modifier = Modifier.weight(1f), cornerRadius = 14.dp) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text("الإيرادات المعتمدة", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("$${String.format(java.util.Locale.US, "%.2f", totalRevenue)}", fontSize = 15.sp, fontWeight = FontWeight.Black, color = TrueBlue)
+                    Text("$${String.format(java.util.Locale.US, "%.2f", totalRevenue)}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
                 }
             }
             GlassCard(modifier = Modifier.weight(1f), cornerRadius = 14.dp) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text("النقاط المباعة", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("$totalPointsSold pts", fontSize = 15.sp, fontWeight = FontWeight.Black, color = TrueBlue)
+                    Text("$totalPointsSold pts", fontSize = 14.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
                 }
             }
             GlassCard(modifier = Modifier.weight(1f), cornerRadius = 14.dp) {
                 Column(modifier = Modifier.padding(8.dp)) {
-                    Text("إجمالي الرحلات", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${allRides.size}", fontSize = 15.sp, fontWeight = FontWeight.Black, color = TrueBlue)
+                    Text("الرحلات المعروضة", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${allRides.size}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
+                }
+            }
+            GlassCard(modifier = Modifier.weight(1f), cornerRadius = 14.dp) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text("طلبات الرحلات", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${requestedTrips.size}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = GoldAccent)
                 }
             }
         }
@@ -200,21 +250,21 @@ fun AdminDashboardScreen(
         ScrollableTabRow(
             selectedTabIndex = selectedTab,
             containerColor = Color.Transparent,
-            contentColor = TrueBlue,
+            contentColor = PrimaryGreen,
             edgePadding = 0.dp,
             divider = {}
         ) {
             val tabs = listOf(
-                "طلبات الشحن (${topUpRequests.size})",
                 "المستخدمين (${allUsers.size})",
-                "الرحلات (${allRides.size})",
-                "الإعدادات العامة",
-                "الإشعارات",
-                "التقارير والإحصائيات",
+                "التحكم بالمحادثات (${allChatMessages.size})",
+                "طلبات الشحن (${topUpRequests.size})",
+                "الرحلات المنشورة (${allRides.size})",
+                "طلبات الرحلات (${requestedTrips.size})",
+                "الإشعارات الجماعية",
+                "الإعدادات والهوية",
+                "سجل المحفظة (${allWalletTransactions.size})",
                 "الدعم الفني (${supportTickets.count { it.status == "OPEN" }})",
-                "الأمان والسجلات",
-                "سجل المحفظة والعمليات (${allWalletTransactions.size})",
-                "مراقبة المحادثات (${allChatMessages.size})"
+                "سجلات الأمان (${activityLogs.size})"
             )
             tabs.forEachIndexed { index, title ->
                 Tab(
@@ -230,767 +280,943 @@ fun AdminDashboardScreen(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (selectedTab) {
                 0 -> {
-                    // TopUp Requests
-                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("طلبات الشحن عبر شام كاش", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Button(
-                            onClick = { Toast.makeText(context, "تم تصدير تقرير شحن النقاط (Excel/PDF)", Toast.LENGTH_SHORT).show() },
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = TrueBlue)
-                        ) {
-                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("تصدير تقرير", fontSize = 11.sp)
-                        }
+                    // Users Management with Impersonation, Edit, Wallet Adjust
+                    var userSearchQuery by remember { mutableStateOf("") }
+                    val filteredUsers = allUsers.filter {
+                        it.name.contains(userSearchQuery, ignoreCase = true) ||
+                        it.email.contains(userSearchQuery, ignoreCase = true) ||
+                        it.phone.contains(userSearchQuery, ignoreCase = true)
                     }
 
-                    if (topUpRequests.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("لا توجد طلبات شحن حالياً", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    } else {
+                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = userSearchQuery,
+                            onValueChange = { userSearchQuery = it },
+                            placeholder = { Text("بحث عن مستخدم بالاسم، الإيميل، أو الهاتف...") },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("admin_user_search")
+                        )
+
                         LazyColumn(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = PaddingValues(bottom = 90.dp)
                         ) {
-                            items(topUpRequests) { req ->
-                                val isPending = req.status == RequestStatus.PENDING.name
-                                val isApproved = req.status == RequestStatus.APPROVED.name
-
-                                GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+                            items(filteredUsers) { u ->
+                                GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
                                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column {
-                                                Text(req.userName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                                Text("باقة ${req.packagePoints} نقطة • $${req.packagePriceUsd}", fontSize = 12.sp, color = TrueBlue, fontWeight = FontWeight.Bold)
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Box(
+                                                    modifier = Modifier.size(40.dp).clip(CircleShape).background(PrimaryGreen.copy(alpha = 0.15f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(Icons.Filled.Person, contentDescription = null, tint = PrimaryGreen)
+                                                }
+                                                Column {
+                                                    Text(u.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text("${u.phone} • ${u.email}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Surface(color = GoldAccent.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
+                                                            Text("محفظة: ${u.walletPoints} نقطة", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = DarkGreen, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                        }
+                                                        Text("${u.userRole} • ${u.rating}⭐", fontSize = 10.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
                                             }
+
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
-                                                color = if (isPending) Color(0xFFFEF3C7) else if (isApproved) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                                                color = if (u.isSuspended) Color(0xFFFEE2E2) else Color(0xFFD1FAE5)
                                             ) {
                                                 Text(
-                                                    text = if (isPending) "قيد المراجعة" else if (isApproved) "مكتمل" else "مرفوض",
+                                                    text = if (u.isSuspended) "معلق" else "نشط",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 10.sp,
-                                                    color = if (isPending) Color(0xFFD97706) else if (isApproved) Color(0xFF065F46) else Color(0xFF991B1B),
+                                                    color = if (u.isSuspended) Color(0xFF991B1B) else Color(0xFF065F46),
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                                 )
                                             }
                                         }
 
-                                        Surface(
-                                            color = TrueBlue.copy(alpha = 0.1f),
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.fillMaxWidth().clickable { previewReceiptUri = req.receiptImagePath }
+                                        // Action Buttons Row
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            // IMPERSONATION BUTTON (Critical)
+                                            Button(
+                                                onClick = {
+                                                    viewModel.startImpersonation(u)
+                                                    Toast.makeText(context, "تم الدخول بحساب المستخدم: ${u.name}", Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                modifier = Modifier.weight(1.2f)
                                             ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                    Icon(Icons.Filled.Receipt, contentDescription = null, tint = TrueBlue, modifier = Modifier.size(18.dp))
-                                                    Text("إشعار دفع شام كاش مرفق يدوياً من الهاتف", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TrueBlue)
-                                                }
-                                                Button(
-                                                    onClick = { previewReceiptUri = req.receiptImagePath },
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                    colors = ButtonDefaults.buttonColors(containerColor = TrueBlue)
-                                                ) {
-                                                    Icon(Icons.Filled.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("معاينة الإشعار", fontSize = 10.sp)
-                                                }
+                                                Icon(Icons.Filled.SwitchAccount, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text("دخول بحسابه", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                             }
-                                        }
 
-                                        if (isPending) {
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                Button(
-                                                    onClick = { onApproveRequest(req.id) },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                                    shape = RoundedCornerShape(10.dp),
-                                                    modifier = Modifier.weight(1f)
-                                                ) {
-                                                    Text("موافقة وتلقائي الشحن", color = Color.White, fontSize = 12.sp)
-                                                }
-
-                                                OutlinedButton(
-                                                    onClick = { requestToReject = req },
-                                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                                    shape = RoundedCornerShape(10.dp),
-                                                    modifier = Modifier.weight(1f)
-                                                ) {
-                                                    Text("رفض مع بيان السبب", fontSize = 12.sp)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            1 -> {
-                // User Management
-                var userSearchQuery by remember { mutableStateOf("") }
-                val filteredUsers = allUsers.filter {
-                    it.name.contains(userSearchQuery, ignoreCase = true) ||
-                    it.email.contains(userSearchQuery, ignoreCase = true) ||
-                    it.phone.contains(userSearchQuery, ignoreCase = true)
-                }
-
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = userSearchQuery,
-                        onValueChange = { userSearchQuery = it },
-                        placeholder = { Text("بحث عن مستخدم بالاسم، الإيميل، أو الهاتف...") },
-                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("admin_user_search")
-                    )
-
-                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                        items(filteredUsers) { u ->
-                            GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Box(
-                                                modifier = Modifier.size(36.dp).clip(CircleShape).background(TrueBlue.copy(alpha = 0.2f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Filled.Person, contentDescription = null, tint = TrueBlue)
-                                            }
-                                            Column {
-                                                Text(u.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                                Text("${u.phone} • ${u.email}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                Text("${u.userRole} • ${u.rating}⭐ • محفظة: ${u.walletPoints} نقطة", fontSize = 10.sp, color = TrueBlue, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (u.isSuspended) Color(0xFFFEE2E2) else Color(0xFFD1FAE5)
-                                        ) {
-                                            Text(
-                                                text = if (u.isSuspended) "معلق" else "نشط",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 10.sp,
-                                                color = if (u.isSuspended) Color(0xFF991B1B) else Color(0xFF065F46),
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Button(
-                                            onClick = { userToChatWith = u },
-                                            colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Chat, contentDescription = null, modifier = Modifier.size(12.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("محادثة", fontSize = 11.sp)
-                                        }
-
-                                        OutlinedButton(
-                                            onClick = { userToViewDetails = u },
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(12.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("التفاصيل والنشاط", fontSize = 11.sp)
-                                        }
-
-                                        if (u.isSuspended) {
-                                            TextButton(onClick = { viewModel.reactivateUser(u.id); Toast.makeText(context, "تمت إعادة تفعيل حساب ${u.name}", Toast.LENGTH_SHORT).show() }) {
-                                                Text("تفعيل", fontSize = 11.sp, color = Color(0xFF10B981))
-                                            }
-                                        } else {
-                                            TextButton(onClick = { userToSuspend = u }) {
-                                                Text("تعليق", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                                            }
-                                        }
-
-                                        TextButton(onClick = { viewModel.deleteUserByAdmin(u.id); Toast.makeText(context, "تم حذف الحساب نهائياً", Toast.LENGTH_SHORT).show() }) {
-                                            Text("حذف", fontSize = 11.sp, color = Color.Gray)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            2 -> {
-                // Rides Management
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("إدارة الرحلات والمشاوير المنشورة", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-
-                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                        items(allRides) { ride ->
-                            GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Column {
-                                            Text("${ride.startCity} ➔ ${ride.endCity}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                            Text("السائق: ${ride.driverName} • ${ride.departureDate} (${ride.departureTime})", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            Text("السعر: $${ride.pricePerSeat} • مقاعد متبقية: ${ride.availableSeats}/${ride.totalSeats}", fontSize = 11.sp, color = TrueBlue, fontWeight = FontWeight.Bold)
-                                        }
-
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (ride.status == "CANCELLED") Color(0xFFFEE2E2) else Color(0xFFD1FAE5)
-                                        ) {
-                                            Text(
-                                                text = if (ride.status == "CANCELLED") "ملغاة" else "متاحة",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 10.sp,
-                                                color = if (ride.status == "CANCELLED") Color(0xFF991B1B) else Color(0xFF065F46),
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
-
-                                    if (ride.status != "CANCELLED") {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                            // ADJUST WALLET
                                             OutlinedButton(
-                                                onClick = { rideToCancel = ride },
-                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                                shape = RoundedCornerShape(8.dp)
+                                                onClick = {
+                                                    userToAdjustWallet = u
+                                                    adjustPointsDelta = ""
+                                                    adjustPointsReason = ""
+                                                    isPointsAddition = true
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Text("إلغاء الرحلة كأدمن", fontSize = 11.sp)
+                                                Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                Spacer(modifier = Modifier.width(2.dp))
+                                                Text("الرصيد", fontSize = 10.sp)
                                             }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
 
-            3 -> {
-                // General Settings
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Filled.Info, contentDescription = null, tint = TrueBlue)
-                                    Text("سياسة تسعير الرحلات والخصومات", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TrueBlue)
-                                }
-                                Text(
-                                    "تحديد أسعار المقاعد والرحلات يتم بحرية تامة وبشكل كلي من قِبل السائق أثناء نشر رحلته. يمنع النظام الأدمن من فرض سعر إجباري للرحلة أو تطبيق خصم عليها لضمان الشفافية والعدالة.",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                        }
-                    }
+                                            // EDIT USER
+                                            OutlinedButton(
+                                                onClick = {
+                                                    userToEdit = u
+                                                    editUserName = u.name
+                                                    editUserPhone = u.phone
+                                                    editUserRole = u.userRole
+                                                    editUserPoints = u.walletPoints.toString()
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                Spacer(modifier = Modifier.width(2.dp))
+                                                Text("تعديل", fontSize = 10.sp)
+                                            }
 
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("إعدادات حساب شام كاش الموحد للمشغل", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-                                Text("رقم الحساب الموحد المعلن لكافة المستخدمين لشحن المحفظة (الافتراضي: ba64858e96d4ad9c6096948bc2dbc970):", fontSize = 11.sp, color = Color.Gray)
+                                            // DETAILS
+                                            IconButton(
+                                                onClick = { userToViewDetails = u },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Info, contentDescription = "Details", tint = PrimaryGreen, modifier = Modifier.size(16.dp))
+                                            }
 
-                                var editedAcc by remember(currentShamCashAccount) { mutableStateOf(currentShamCashAccount) }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    OutlinedTextField(
-                                        value = editedAcc,
-                                        onValueChange = { editedAcc = it },
-                                        label = { Text("رقم حساب شام كاش الموحد") },
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    Button(
-                                        onClick = {
-                                            viewModel.updateShamCashAccount(editedAcc)
-                                            Toast.makeText(context, "تم تحديث رقم حساب شام كاش بنجاح!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Text("حفظ الحساب")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("إعدادات رابط تنزيل التطبيق (دعوة الأصدقاء)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-                                Text("الرابط المرفق تلقائياً في رسائل دعوات الواتساب للمستخدمين:", fontSize = 11.sp, color = Color.Gray)
-
-                                var editedUrl by remember(currentAppDownloadUrl) { mutableStateOf(currentAppDownloadUrl) }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    OutlinedTextField(
-                                        value = editedUrl,
-                                        onValueChange = { editedUrl = it },
-                                        label = { Text("رابط تنزيل التطبيق") },
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    Button(
-                                        onClick = {
-                                            viewModel.updateAppDownloadUrl(editedUrl)
-                                            Toast.makeText(context, "تم تحديث رابط تنزيل التطبيق بنجاح!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Text("حفظ الرابط")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("إعدادات كلفة النشر", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column {
-                                        Text("كلفة نشر الرحلة (نقاط)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                        Text("النقاط التي تُخصم تلقائياً من السائق عند النشر", fontSize = 10.sp, color = Color.Gray)
-                                    }
-                                    OutlinedTextField(
-                                        value = publishCost.toString(),
-                                        onValueChange = { viewModel.ridePublishCost.value = it.toIntOrNull() ?: 50 },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.width(90.dp),
-                                        singleLine = true
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("ميزات المنصة والتطبيقات", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text("تفعيل الدردشة والمحادثات المباشرة", fontSize = 12.sp)
-                                    Switch(checked = chatEnabled, onCheckedChange = { viewModel.featureChatEnabled.value = it })
-                                }
-
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text("تفعيل نظام التقييم والمراجعات", fontSize = 12.sp)
-                                    Switch(checked = ratingsEnabled, onCheckedChange = { viewModel.featureRatingsEnabled.value = it })
-                                }
-
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text("تفعيل تصفية الرحلات النسائية فقط", fontSize = 12.sp)
-                                    Switch(checked = womenOnlyEnabled, onCheckedChange = { viewModel.featureWomenOnlyEnabled.value = it })
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("تغيير كلمة مرور المشغل (Super Admin)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-
-                                OutlinedTextField(
-                                    value = oldAdminPass,
-                                    onValueChange = { oldAdminPass = it },
-                                    label = { Text("كلمة المرور الحالية") },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
-
-                                OutlinedTextField(
-                                    value = newAdminPass,
-                                    onValueChange = { newAdminPass = it },
-                                    label = { Text("كلمة المرور الجديدة") },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
-
-                                OutlinedTextField(
-                                    value = confirmAdminPass,
-                                    onValueChange = { confirmAdminPass = it },
-                                    label = { Text("تأكيد كلمة المرور الجديدة") },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
-
-                                Button(
-                                    onClick = {
-                                        if (newAdminPass != confirmAdminPass) {
-                                            Toast.makeText(context, "كلمتا المرور الجديدتان غير متطابقتين", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            if (viewModel.changeAdminPassword(oldAdminPass, newAdminPass)) {
-                                                Toast.makeText(context, "تم تغيير كلمة مرور الأدمن بنجاح!", Toast.LENGTH_SHORT).show()
-                                                oldAdminPass = ""
-                                                newAdminPass = ""
-                                                confirmAdminPass = ""
+                                            // SUSPEND / REACTIVATE
+                                            if (u.isSuspended) {
+                                                IconButton(
+                                                    onClick = { viewModel.reactivateUser(u.id); Toast.makeText(context, "تمت إعادة تفعيل حساب ${u.name}", Toast.LENGTH_SHORT).show() },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.CheckCircle, contentDescription = "Activate", tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                                }
                                             } else {
-                                                Toast.makeText(context, "كلمة المرور الحالية غير صحيحة", Toast.LENGTH_SHORT).show()
+                                                IconButton(
+                                                    onClick = { userToSuspend = u },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Block, contentDescription = "Suspend", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                                }
                                             }
                                         }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("حفظ كلمة المرور الجديدة", color = Color.White)
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            4 -> {
-                // Notifications & Banners
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("إرسال إشعار عام لكافة المستخدمين", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
+                1 -> {
+                    // Chat Control Center (Super Admin Full Control)
+                    val ridesWithMessages = allRides.filter { r -> allChatMessages.any { it.rideId == r.id } }
+                    val activeRideChat = allRides.find { it.id == selectedRideChatRoom }
 
-                                OutlinedTextField(
-                                    value = notifTitleText,
-                                    onValueChange = { notifTitleText = it },
-                                    label = { Text("عنوان الإشعار") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
+                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("التحكم الكامل والرقابة على محادثات الرحلات", fontWeight = FontWeight.Bold, fontSize = 13.sp)
 
-                                OutlinedTextField(
-                                    value = notifBodyText,
-                                    onValueChange = { notifBodyText = it },
-                                    label = { Text("نص الإشعار") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Button(
-                                    onClick = {
-                                        if (notifTitleText.isNotBlank() && notifBodyText.isNotBlank()) {
-                                            viewModel.sendGlobalNotification(notifTitleText, notifBodyText, "الكل")
-                                            Toast.makeText(context, "تم بث الإشعار بنجاح لكافة مستخدمي التطبيق", Toast.LENGTH_SHORT).show()
-                                            notifTitleText = ""
-                                            notifBodyText = ""
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(Icons.Filled.Send, contentDescription = null, tint = Color.White)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("بث الإشعار الآن", color = Color.White)
+                            if (selectedRideChatRoom != null) {
+                                TextButton(onClick = { selectedRideChatRoom = null }) {
+                                    Text("عرض كل الرحلات", fontSize = 11.sp, color = PrimaryGreen)
                                 }
                             }
                         }
-                    }
 
-                    item {
-                        Text("إعلانات البنرات على الصفحة الرئيسية", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
+                        if (selectedRideChatRoom == null) {
+                            // List of all conversations
+                            if (allChatMessages.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize().padding(30.dp), contentAlignment = Alignment.Center) {
+                                    Text("لا توجد رسائل محادثة في النظام بعد", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(bottom = 90.dp)
+                                ) {
+                                    items(allRides) { ride ->
+                                        val rideMsgs = allChatMessages.filter { it.rideId == ride.id }
+                                        if (rideMsgs.isNotEmpty()) {
+                                            val lastMsg = rideMsgs.last()
+                                            GlassCard(
+                                                modifier = Modifier.fillMaxWidth().clickable { selectedRideChatRoom = ride.id },
+                                                cornerRadius = 14.dp
+                                            ) {
+                                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text("${ride.startCity} ➔ ${ride.endCity}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                        Surface(color = PrimaryGreen.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
+                                                            Text("${rideMsgs.size} رسائل", fontSize = 10.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                        }
+                                                    }
+                                                    Text("السائق: ${ride.driverName} • التاريخ: ${ride.departureDate}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Text("آخر رسالة: ${lastMsg.messageText}", fontSize = 11.sp, color = Color.Gray, maxLines = 1)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Viewing a specific ride's chat room with Super Admin powers
+                            val currentRoomMsgs = allChatMessages.filter { it.rideId == selectedRideChatRoom }
 
-                    items(homeBanners) { b ->
-                        GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
                             Row(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
-                                    Text(b.title, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    Text("توجيه: ${b.targetRoute}", fontSize = 10.sp, color = Color.Gray)
-                                }
-
-                                Switch(checked = b.isActive, onCheckedChange = { viewModel.toggleBannerStatus(b.id) })
-                            }
-                        }
-                    }
-                }
-            }
-
-            5 -> {
-                // Reports & Analytics
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("إحصائيات المبيعات والنشاط اليومي", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-
-                                Text("توزيع مستخدمي المنصة (سائقين vs ركاب)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                LinearProgressIndicator(
-                                    progress = { 0.35f },
-                                    modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
-                                    color = TrueBlue,
-                                    trackColor = Color.LightGray
-                                )
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("السائقين (35%)", fontSize = 10.sp, color = TrueBlue)
-                                    Text("الركاب (65%)", fontSize = 10.sp, color = Color.Gray)
-                                }
-
-                                HorizontalDivider()
-
-                                Text("أعلى الخطوط طلباً ونشاطاً", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("1. دمشق ➔ حلب (42% من الرحلات)", fontSize = 11.sp)
-                                    Text("2. دمشق ➔ حمص (28% من الرحلات)", fontSize = 11.sp)
-                                    Text("3. دمشق ➔ اللاذقية (18% من الرحلات)", fontSize = 11.sp)
+                                Text("محادثة رحلة: ${activeRideChat?.startCity} ➔ ${activeRideChat?.endCity}", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = PrimaryGreen)
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.deleteChatRoom(selectedRideChatRoom!!)
+                                        Toast.makeText(context, "تم تفريغ وحذف جميع رسائل المحادثة", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("تفريغ المحادثة", fontSize = 10.sp)
                                 }
                             }
-                        }
-                    }
-                }
-            }
 
-            6 -> {
-                // Support Tickets
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                    items(supportTickets) { ticket ->
-                        GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column {
-                                        Text(ticket.subject, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Text("من: ${ticket.userName} (${ticket.userEmail}) • ${ticket.dateText}", fontSize = 10.sp, color = Color.Gray)
-                                    }
+                            // Chat Messages List
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(currentRoomMsgs) { msg ->
+                                    val isSystem = msg.senderId == "system"
+                                    val isAdmin = msg.senderId == "admin" || msg.senderId == "super_admin"
 
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (ticket.status == "OPEN") Color(0xFFFEF3C7) else Color(0xFFD1FAE5)
-                                    ) {
-                                        Text(
-                                            text = if (ticket.status == "OPEN") "مفتوحة" else "معالجة",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 10.sp,
-                                            color = if (ticket.status == "OPEN") Color(0xFFD97706) else Color(0xFF065F46),
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                        )
-                                    }
-                                }
-
-                                Text(ticket.messageText, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
-
-                                if (ticket.adminReply != null) {
-                                    Surface(color = TrueBlue.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                        Text("رد الأدمن: ${ticket.adminReply}", fontSize = 11.sp, color = TrueBlue, modifier = Modifier.padding(8.dp))
-                                    }
-                                }
-
-                                if (ticket.status == "OPEN") {
-                                    Button(
-                                        onClick = { selectedTicketForReply = ticket },
-                                        colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.align(Alignment.End)
-                                    ) {
-                                        Text("الرد وحل التذكرة", fontSize = 11.sp, color = Color.White)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            7 -> {
-                // Security & Logs
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("سجل عمليات ونشاطات الأدمن (Activity Log)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    activityLogs.forEach { log ->
-                                        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                            Column(modifier = Modifier.padding(8.dp)) {
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                    Text(log.actionName, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = TrueBlue)
-                                                    Text(log.timestamp, fontSize = 9.sp, color = Color.Gray)
-                                                }
-                                                Text(log.details, fontSize = 10.sp)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        GlassCard(cornerRadius = 16.dp) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("سجل تسجيلات الدخول للأدمن (Login History)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TrueBlue)
-
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    loginLogs.forEach { l ->
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("${l.timestamp} • ${l.ipAddress}", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                            Text(l.deviceBrowser, fontSize = 10.sp, color = Color.Gray)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            8 -> {
-                // Wallet Transactions Audit
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("تدقيق محفظة النقاط والعمليات المالية لجميع المستخدمين", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-
-                    if (allWalletTransactions.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize().padding(30.dp), contentAlignment = Alignment.Center) {
-                            Text("لا توجد عمليات محفظة مسجلة بعد", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    } else {
-                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                            items(allWalletTransactions) { tx ->
-                                val dateStr = remember(tx.createdAt) {
-                                    try {
-                                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(tx.createdAt))
-                                    } catch (e: Exception) { "" }
-                                }
-
-                                GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text(tx.description, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                            Text("التاريخ: $dateStr", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (tx.points > 0) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
-                                        ) {
-                                            Text(
-                                                text = if (tx.points > 0) "+${tx.points} نقطة" else "${tx.points} نقطة",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.sp,
-                                                color = if (tx.points > 0) Color(0xFF065F46) else Color(0xFF991B1B),
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            9 -> {
-                // Chat Messages Audit
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("مراقبة وتفتيش كافة محادثات ورسائل الدردشة بين المستخدمين", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-
-                    if (allChatMessages.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize().padding(30.dp), contentAlignment = Alignment.Center) {
-                            Text("لا توجد رسائل دردشة في النظام بعد", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    } else {
-                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
-                            items(allChatMessages) { msg ->
-                                val senderName = remember(msg.senderId, allUsers) {
-                                    allUsers.find { it.id == msg.senderId }?.name ?: "مستخدم (${msg.senderId})"
-                                }
-                                val msgDateStr = remember(msg.timestamp) {
-                                    try {
-                                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(msg.timestamp))
-                                    } catch (e: Exception) { "" }
-                                }
-
-                                GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = TrueBlue)
-                                                Text(senderName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                            }
-                                            Text(msgDateStr, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-
-                                        if (msg.imageUri != null) {
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                                modifier = Modifier.size(140.dp, 90.dp).clickable { previewReceiptUri = msg.imageUri }
+                                    GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 10.dp) {
+                                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Icon(
+                                                        if (isAdmin) Icons.Filled.AdminPanelSettings else if (isSystem) Icons.Filled.Info else Icons.Filled.Person,
+                                                        contentDescription = null,
+                                                        tint = if (isAdmin) GoldAccent else if (isSystem) Color.Blue else PrimaryGreen,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Text(
+                                                        text = if (isAdmin) "مدير النظام (Admin)" else if (isSystem) "تنبيه النظام" else "مرسل: ${msg.senderId}",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isAdmin) PrimaryGreen else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+
+                                                // Admin actions on message
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            messageToEdit = msg
+                                                            editMessageNewText = msg.messageText
+                                                        },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = PrimaryGreen, modifier = Modifier.size(14.dp))
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            viewModel.deleteChatMessage(msg.id)
+                                                            Toast.makeText(context, "تم حذف الرسالة", Toast.LENGTH_SHORT).show()
+                                                        },
+                                                        modifier = Modifier.size(24.dp)
+                                                    ) {
+                                                        Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
+                                                    }
+                                                }
+                                            }
+
+                                            if (msg.imageUri != null) {
                                                 AsyncImage(
                                                     model = msg.imageUri,
-                                                    contentDescription = "Chat Image",
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
+                                                    contentDescription = "Message Image",
+                                                    modifier = Modifier.size(120.dp, 80.dp).clip(RoundedCornerShape(8.dp)),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
+
+                                            Text(msg.messageText, fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Send Message as Super Admin bar
+                            var adminSenderRole by remember { mutableStateOf("ADMIN") } // ADMIN, SYSTEM, DRIVER, PASSENGER
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("إرسال كـ:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                val roles = listOf("ADMIN" to "أدمن", "SYSTEM" to "نظام", "DRIVER" to "سائق", "PASSENGER" to "راكب")
+                                roles.forEach { (key, label) ->
+                                    FilterChip(
+                                        selected = adminSenderRole == key,
+                                        onClick = { adminSenderRole = key },
+                                        label = { Text(label, fontSize = 9.sp) }
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        val sampleImages = listOf(
+                                            "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957",
+                                            "https://images.unsplash.com/photo-1508921912186-1d1a45ebb3c1"
+                                        )
+                                        adminAttachedImageUri = sampleImages.random()
+                                        Toast.makeText(context, "تم إرفاق صورة", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.Image, contentDescription = "Attach", tint = PrimaryGreen)
+                                }
+
+                                OutlinedTextField(
+                                    value = adminChatMessageText,
+                                    onValueChange = { adminChatMessageText = it },
+                                    placeholder = { Text("اكتب رسالة كمدير النظام...", fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+
+                                IconButton(
+                                    onClick = {
+                                        if (adminChatMessageText.isNotBlank() || adminAttachedImageUri != null) {
+                                            val senderId = when (adminSenderRole) {
+                                                "SYSTEM" -> "system"
+                                                "DRIVER" -> activeRideChat?.driverId ?: "driver_id"
+                                                "PASSENGER" -> "passenger_id"
+                                                else -> "super_admin"
+                                            }
+                                            val senderName = when (adminSenderRole) {
+                                                "SYSTEM" -> "تنبيه النظام"
+                                                "DRIVER" -> activeRideChat?.driverName ?: "السائق"
+                                                "PASSENGER" -> "الراكب"
+                                                else -> "مدير النظام"
+                                            }
+
+                                            viewModel.sendAdminChatMessage(
+                                                rideId = selectedRideChatRoom!!,
+                                                senderId = senderId,
+                                                senderName = senderName,
+                                                messageText = adminChatMessageText,
+                                                imageUri = adminAttachedImageUri,
+                                                isSystem = adminSenderRole == "SYSTEM"
+                                            )
+                                            adminChatMessageText = ""
+                                            adminAttachedImageUri = null
+                                            Toast.makeText(context, "تم إرسال الرسالة", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.Send, contentDescription = "Send", tint = PrimaryGreen)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                2 -> {
+                    // TopUp Requests
+                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("طلبات الشحن عبر شام كاش", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+
+                        if (topUpRequests.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("لا توجد طلبات شحن حالياً", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(bottom = 90.dp)
+                            ) {
+                                items(topUpRequests) { req ->
+                                    val isPending = req.status == RequestStatus.PENDING.name
+                                    val isApproved = req.status == RequestStatus.APPROVED.name
+
+                                    GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+                                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text(req.userName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                    Text("باقة ${req.packagePoints} نقطة • $${req.packagePriceUsd}", fontSize = 12.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold)
+                                                }
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (isPending) Color(0xFFFEF3C7) else if (isApproved) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                                                ) {
+                                                    Text(
+                                                        text = if (isPending) "قيد المراجعة" else if (isApproved) "مكتمل" else "مرفوض",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp,
+                                                        color = if (isPending) Color(0xFFD97706) else if (isApproved) Color(0xFF065F46) else Color(0xFF991B1B),
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Surface(
+                                                color = PrimaryGreen.copy(alpha = 0.1f),
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier.fillMaxWidth().clickable { previewReceiptUri = req.receiptImagePath }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                        Icon(Icons.Filled.Image, contentDescription = null, tint = PrimaryGreen)
+                                                        Text("معاينة صورة إشعار شام كاش المرفق", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    Icon(Icons.Filled.ZoomIn, contentDescription = null, tint = PrimaryGreen)
+                                                }
+                                            }
+
+                                            if (isPending) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Button(
+                                                        onClick = { onApproveRequest(req.id) },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Text("موافقة وإضافة النقاط", fontSize = 12.sp, color = Color.White)
+                                                    }
+                                                    OutlinedButton(
+                                                        onClick = { requestToReject = req },
+                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Text("رفض مع السبب", fontSize = 12.sp)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                3 -> {
+                    // Rides Management
+                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("إدارة وتعديل الرحلات المنشورة", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+
+                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                            items(allRides) { ride ->
+                                GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            Column {
+                                                Text("${ride.startCity} ➔ ${ride.endCity}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                Text("السائق: ${ride.driverName} • ${ride.departureDate} (${ride.departureTime})", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("السعر: $${ride.pricePerSeat} • مقاعد متبقية: ${ride.availableSeats}/${ride.totalSeats}", fontSize = 11.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold)
+                                            }
+
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (ride.status == "CANCELLED") Color(0xFFFEE2E2) else Color(0xFFD1FAE5)
+                                            ) {
+                                                Text(
+                                                    text = if (ride.status == "CANCELLED") "ملغاة" else "متاحة",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.sp,
+                                                    color = if (ride.status == "CANCELLED") Color(0xFF991B1B) else Color(0xFF065F46),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                                 )
                                             }
                                         }
 
-                                        if (msg.isLocation) {
-                                            Text("📍 مشاركة موقع جغرافي مباشر", fontSize = 12.sp, color = TrueBlue, fontWeight = FontWeight.Bold)
-                                        } else {
-                                            Text(msg.messageText, fontSize = 13.sp)
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    rideToEdit = ride
+                                                    editRideStartCity = ride.startCity
+                                                    editRideEndCity = ride.endCity
+                                                    editRideDate = ride.departureDate
+                                                    editRideTime = ride.departureTime
+                                                    editRidePrice = ride.pricePerSeat.toString()
+                                                    editRideSeats = ride.availableSeats.toString()
+                                                },
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text("تعديل الرحلة", fontSize = 11.sp)
+                                            }
+
+                                            if (ride.status != "CANCELLED") {
+                                                OutlinedButton(
+                                                    onClick = { rideToCancel = ride },
+                                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("إلغاء كأدمن", fontSize = 11.sp)
+                                                }
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.adminDeleteRide(ride.id)
+                                                    Toast.makeText(context, "تم حذف الرحلة نهائياً", Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.Gray)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                4 -> {
+                    // Requested Trips Management
+                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("إدارة طلبات الرحلات (المفتوحة والمقبولة)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+
+                        if (requestedTrips.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize().padding(30.dp), contentAlignment = Alignment.Center) {
+                                Text("لا توجد طلبات رحلات حالياً", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(bottom = 90.dp)
+                            ) {
+                                items(requestedTrips) { req ->
+                                    val isOpen = req.status == "OPEN"
+                                    GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                                Column {
+                                                    Text("${req.startCity} ➔ ${req.endCity}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                    Text("صاحب الطلب: ${req.userName} • ${req.userPhone}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    Text("الموعد: ${req.departureDate} (${req.departureTime}) • الركاب: ${req.menCount} رجال، ${req.womenCount} نساء، ${req.childrenCount} أطفال", fontSize = 11.sp, color = PrimaryGreen)
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (isOpen) Color(0xFFD1FAE5) else Color(0xFFFEF3C7)
+                                                ) {
+                                                    Text(
+                                                        text = if (isOpen) "مفتوح للجميع" else "مقبول (${req.acceptedByDriverName ?: "سائق"})",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp,
+                                                        color = if (isOpen) Color(0xFF065F46) else Color(0xFFD97706),
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
+                                                if (!isOpen) {
+                                                    Button(
+                                                        onClick = {
+                                                            viewModel.adminReopenRequestedTrip(req.id)
+                                                            Toast.makeText(context, "تمت إعادة فتح الطلب للسائقين", Toast.LENGTH_SHORT).show()
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Text("إعادة فتحه (Reopen)", fontSize = 10.sp)
+                                                    }
+                                                }
+
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        requestedTripToEdit = req
+                                                        editReqStartCity = req.startCity
+                                                        editReqEndCity = req.endCity
+                                                        editReqDate = req.departureDate
+                                                        editReqTime = req.departureTime
+                                                        editReqMen = req.menCount.toString()
+                                                        editReqWomen = req.womenCount.toString()
+                                                        editReqChildren = req.childrenCount.toString()
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text("تعديل الطلب", fontSize = 10.sp)
+                                                }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.deleteRequestedTrip(req.id)
+                                                        Toast.makeText(context, "تم حذف الطلب", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                ) {
+                                                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.Gray)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                5 -> {
+                    // Broadcast Notifications
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                        item {
+                            GlassCard(cornerRadius = 16.dp) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("إرسال إشعار جماعي لجميع المستخدمين (Broadcast)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PrimaryGreen)
+
+                                    Text("الفئة المستهدفة:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        val audiences = listOf("ALL" to "جميع المستخدمين", "DRIVERS" to "السائقون فقط", "PASSENGERS" to "الركاب فقط")
+                                        audiences.forEach { (key, label) ->
+                                            FilterChip(
+                                                selected = broadcastAudience == key,
+                                                onClick = { broadcastAudience = key },
+                                                label = { Text(label, fontSize = 10.sp) }
+                                            )
+                                        }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = broadcastTitleText,
+                                        onValueChange = { broadcastTitleText = it },
+                                        label = { Text("عنوان الإشعار") },
+                                        placeholder = { Text("مثال: تحديث هام بشأن الرحلات") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    OutlinedTextField(
+                                        value = broadcastBodyText,
+                                        onValueChange = { broadcastBodyText = it },
+                                        label = { Text("نص الإشعار") },
+                                        placeholder = { Text("اكتب نص الرسالة التي ستصل لجميع المستخدمين...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        minLines = 3
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            if (broadcastTitleText.isNotBlank() && broadcastBodyText.isNotBlank()) {
+                                                viewModel.sendBroadcastNotification(
+                                                    title = broadcastTitleText,
+                                                    message = broadcastBodyText,
+                                                    targetAudience = broadcastAudience,
+                                                    type = broadcastType
+                                                )
+                                                Toast.makeText(context, "تم إرسال الإشعار الجماعي بنجاح لجميع المستهدفين", Toast.LENGTH_SHORT).show()
+                                                broadcastTitleText = ""
+                                                broadcastBodyText = ""
+                                            } else {
+                                                Toast.makeText(context, "يرجى كتابة العنوان ونص الإشعار", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Filled.Campaign, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("إرسال الإشعار الجماعي الآن", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                6 -> {
+                    // App Customization & Remote Configuration
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                        item {
+                            GlassCard(cornerRadius = 16.dp) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("تخصيص الهوية والشعار والأيقونة السحابية", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PrimaryGreen)
+
+                                    OutlinedTextField(
+                                        value = configAppName,
+                                        onValueChange = { configAppName = it },
+                                        label = { Text("اسم التطبيق المعتمد") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    OutlinedTextField(
+                                        value = configAppTagline,
+                                        onValueChange = { configAppTagline = it },
+                                        label = { Text("الشعار / Slogan") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    OutlinedTextField(
+                                        value = configAppLogoUrl,
+                                        onValueChange = { configAppLogoUrl = it },
+                                        label = { Text("رابط صورة الشعار (Logo URL)") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Text("نمط ولون أيقونة التطبيق الحركية:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    val iconVariants = listOf("Emerald Green (افتراضي)", "Gold Royale", "Midnight Dark")
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        iconVariants.forEach { variant ->
+                                            FilterChip(
+                                                selected = configIconVariant == variant,
+                                                onClick = { configIconVariant = variant },
+                                                label = { Text(variant, fontSize = 10.sp) }
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("تفعيل وضع الصيانة (Maintenance Mode)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Switch(
+                                            checked = configIsMaintenance,
+                                            onCheckedChange = { configIsMaintenance = it }
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Divider()
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text("بيانات الدفع والتحميل:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen)
+
+                                    OutlinedTextField(
+                                        value = shamCashInput,
+                                        onValueChange = { shamCashInput = it },
+                                        label = { Text("رقم حساب شام كاش الموحد") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    OutlinedTextField(
+                                        value = appDownloadUrlInput,
+                                        onValueChange = { appDownloadUrlInput = it },
+                                        label = { Text("رابط تنزيل التطبيق الموحد") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            viewModel.updateRemoteAppConfig(configAppName, configAppTagline, configAppLogoUrl, configIconVariant, configIsMaintenance)
+                                            viewModel.updateShamCashAccount(shamCashInput)
+                                            viewModel.updateAppDownloadUrl(appDownloadUrlInput)
+                                            Toast.makeText(context, "تم حفظ وتحديث الإعدادات العامة بنجاح", Toast.LENGTH_SHORT).show()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("حفظ التغييرات", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                7 -> {
+                    // Wallet Audit
+                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("تدقيق محفظة النقاط والعمليات المالية لجميع المستخدمين", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+
+                        if (allWalletTransactions.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize().padding(30.dp), contentAlignment = Alignment.Center) {
+                                Text("لا توجد عمليات محفظة مسجلة بعد", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                                items(allWalletTransactions) { tx ->
+                                    val dateStr = remember(tx.createdAt) {
+                                        try {
+                                            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(tx.createdAt))
+                                        } catch (e: Exception) { "" }
+                                    }
+
+                                    GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(tx.description, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                Text("المستخدم: ${tx.userId} • التاريخ: $dateStr", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (tx.points > 0) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                                                ) {
+                                                    Text(
+                                                        text = if (tx.points > 0) "+${tx.points} نقطة" else "${tx.points} نقطة",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.sp,
+                                                        color = if (tx.points > 0) Color(0xFF065F46) else Color(0xFF991B1B),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    )
+                                                }
+
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.adminCancelWalletTransaction(tx.id)
+                                                        Toast.makeText(context, "تم إلغاء المعاملة المالية", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                8 -> {
+                    // Support Tickets
+                    LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                        items(supportTickets) { ticket ->
+                            GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Column {
+                                            Text(ticket.subject, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text("من: ${ticket.userName} (${ticket.userEmail}) • ${ticket.dateText}", fontSize = 10.sp, color = Color.Gray)
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (ticket.status == "OPEN") Color(0xFFFEF3C7) else Color(0xFFD1FAE5)
+                                        ) {
+                                            Text(
+                                                text = if (ticket.status == "OPEN") "مفتوحة" else "معالجة",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = if (ticket.status == "OPEN") Color(0xFFD97706) else Color(0xFF065F46),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Text(ticket.messageText, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+
+                                    if (ticket.adminReply != null) {
+                                        Surface(color = PrimaryGreen.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                            Text("رد الأدمن: ${ticket.adminReply}", fontSize = 11.sp, color = PrimaryGreen, modifier = Modifier.padding(8.dp))
+                                        }
+                                    }
+
+                                    if (ticket.status == "OPEN") {
+                                        Button(
+                                            onClick = { selectedTicketForReply = ticket },
+                                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.align(Alignment.End)
+                                        ) {
+                                            Text("الرد وحل التذكرة", fontSize = 11.sp, color = Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                9 -> {
+                    // Security & Logs
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 90.dp)) {
+                        item {
+                            GlassCard(cornerRadius = 16.dp) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("سجل عمليات ونشاطات الأدمن (Activity Log)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PrimaryGreen)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        activityLogs.forEach { log ->
+                                            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                                Column(modifier = Modifier.padding(8.dp)) {
+                                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                        Text(log.actionName, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = PrimaryGreen)
+                                                        Text(log.timestamp, fontSize = 9.sp, color = Color.Gray)
+                                                    }
+                                                    Text(log.details, fontSize = 10.sp)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1001,20 +1227,38 @@ fun AdminDashboardScreen(
             }
         }
     }
-    }
 
-    // Reject Dialog
-    if (requestToReject != null) {
+    // Dialogs
+    // Edit User Dialog
+    if (userToEdit != null) {
         AlertDialog(
-            onDismissRequest = { requestToReject = null },
-            title = { Text("رفض طلب الشحن") },
+            onDismissRequest = { userToEdit = null },
+            title = { Text("تعديل بيانات المستخدم") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("أدخل سبب رفض الطلب وسيصل إشعار للمستخدم:")
                     OutlinedTextField(
-                        value = rejectionReasonText,
-                        onValueChange = { rejectionReasonText = it },
-                        placeholder = { Text("مثال: عدم وضوح صورة الإشعار") },
+                        value = editUserName,
+                        onValueChange = { editUserName = it },
+                        label = { Text("اسم المستخدم") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editUserPhone,
+                        onValueChange = { editUserPhone = it },
+                        label = { Text("رقم الهاتف") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editUserRole,
+                        onValueChange = { editUserRole = it },
+                        label = { Text("الدور (PASSENGER أو DRIVER)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editUserPoints,
+                        onValueChange = { editUserPoints = it },
+                        label = { Text("رصيد النقاط") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -1022,17 +1266,276 @@ fun AdminDashboardScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        requestToReject?.let { onRejectRequest(it.id, rejectionReasonText) }
-                        requestToReject = null
-                        rejectionReasonText = ""
+                        userToEdit?.let {
+                            val pts = editUserPoints.toIntOrNull() ?: it.walletPoints
+                            viewModel.adminUpdateUserData(it.id, editUserName, editUserPhone, editUserRole, pts)
+                            Toast.makeText(context, "تم حفظ التعديلات بنجاح", Toast.LENGTH_SHORT).show()
+                        }
+                        userToEdit = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                 ) {
-                    Text("تأكيد الرفض", color = Color.White)
+                    Text("حفظ التعديلات")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { requestToReject = null }) {
+                TextButton(onClick = { userToEdit = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Adjust Wallet Dialog
+    if (userToAdjustWallet != null) {
+        val u = userToAdjustWallet!!
+        AlertDialog(
+            onDismissRequest = { userToAdjustWallet = null },
+            title = { Text("تعديل رصيد محفظة: ${u.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("الرصيد الحالي: ${u.walletPoints} نقطة", fontWeight = FontWeight.Bold, color = PrimaryGreen)
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = isPointsAddition,
+                            onClick = { isPointsAddition = true },
+                            label = { Text("إيداع نقاط (+)") }
+                        )
+                        FilterChip(
+                            selected = !isPointsAddition,
+                            onClick = { isPointsAddition = false },
+                            label = { Text("خصم نقاط (-)") }
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = adjustPointsDelta,
+                        onValueChange = { adjustPointsDelta = it },
+                        label = { Text("عدد النقاط") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = adjustPointsReason,
+                        onValueChange = { adjustPointsReason = it },
+                        label = { Text("السبب أو الملاحظة") },
+                        placeholder = { Text("مثال: مكافأة نشاط أو تسوية حساب") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amount = adjustPointsDelta.toIntOrNull() ?: 0
+                        if (amount > 0) {
+                            val delta = if (isPointsAddition) amount else -amount
+                            viewModel.adminAdjustUserWallet(u.id, delta, adjustPointsReason.ifBlank { "تعديل إداري" })
+                            Toast.makeText(context, "تم تعديل الرصيد بنجاح", Toast.LENGTH_SHORT).show()
+                        }
+                        userToAdjustWallet = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                ) {
+                    Text("تأكيد التعديل")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { userToAdjustWallet = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Edit Chat Message Dialog
+    if (messageToEdit != null) {
+        AlertDialog(
+            onDismissRequest = { messageToEdit = null },
+            title = { Text("تعديل نص الرسالة كأدمن") },
+            text = {
+                OutlinedTextField(
+                    value = editMessageNewText,
+                    onValueChange = { editMessageNewText = it },
+                    label = { Text("نص الرسالة المعدل") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        messageToEdit?.let {
+                            viewModel.editChatMessage(it.id, editMessageNewText)
+                            Toast.makeText(context, "تم تعديل نص الرسالة", Toast.LENGTH_SHORT).show()
+                        }
+                        messageToEdit = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                ) {
+                    Text("حفظ التعديل")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { messageToEdit = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Edit Ride Dialog
+    if (rideToEdit != null) {
+        AlertDialog(
+            onDismissRequest = { rideToEdit = null },
+            title = { Text("تعديل بيانات الرحلة") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = editRideStartCity,
+                            onValueChange = { editRideStartCity = it },
+                            label = { Text("مدينة الانطلاق") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editRideEndCity,
+                            onValueChange = { editRideEndCity = it },
+                            label = { Text("مدينة الوصول") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = editRideDate,
+                            onValueChange = { editRideDate = it },
+                            label = { Text("التاريخ") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editRideTime,
+                            onValueChange = { editRideTime = it },
+                            label = { Text("الوقت") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = editRidePrice,
+                            onValueChange = { editRidePrice = it },
+                            label = { Text("السعر ($)") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editRideSeats,
+                            onValueChange = { editRideSeats = it },
+                            label = { Text("المقاعد") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        rideToEdit?.let {
+                            val price = editRidePrice.toDoubleOrNull() ?: it.pricePerSeat
+                            val seats = editRideSeats.toIntOrNull() ?: it.availableSeats
+                            viewModel.adminEditRide(it.id, editRideStartCity, editRideEndCity, editRideDate, editRideTime, price, seats)
+                            Toast.makeText(context, "تم تعديل الرحلة بنجاح", Toast.LENGTH_SHORT).show()
+                        }
+                        rideToEdit = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                ) {
+                    Text("حفظ التعديلات")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { rideToEdit = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Edit Requested Trip Dialog
+    if (requestedTripToEdit != null) {
+        AlertDialog(
+            onDismissRequest = { requestedTripToEdit = null },
+            title = { Text("تعديل طلب الرحلة") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = editReqStartCity,
+                            onValueChange = { editReqStartCity = it },
+                            label = { Text("الانطلاق") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editReqEndCity,
+                            onValueChange = { editReqEndCity = it },
+                            label = { Text("الوصول") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = editReqDate,
+                            onValueChange = { editReqDate = it },
+                            label = { Text("التاريخ") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editReqTime,
+                            onValueChange = { editReqTime = it },
+                            label = { Text("الوقت") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedTextField(
+                            value = editReqMen,
+                            onValueChange = { editReqMen = it },
+                            label = { Text("رجال") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editReqWomen,
+                            onValueChange = { editReqWomen = it },
+                            label = { Text("نساء") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editReqChildren,
+                            onValueChange = { editReqChildren = it },
+                            label = { Text("أطفال") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        requestedTripToEdit?.let {
+                            val men = editReqMen.toIntOrNull() ?: it.menCount
+                            val women = editReqWomen.toIntOrNull() ?: it.womenCount
+                            val ch = editReqChildren.toIntOrNull() ?: it.childrenCount
+                            viewModel.adminEditRequestedTrip(it.id, editReqStartCity, editReqEndCity, editReqDate, editReqTime, men, women, ch)
+                            Toast.makeText(context, "تم تعديل طلب الرحلة بنجاح", Toast.LENGTH_SHORT).show()
+                        }
+                        requestedTripToEdit = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
+                ) {
+                    Text("حفظ التعديلات")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { requestedTripToEdit = null }) {
                     Text("إلغاء")
                 }
             }
@@ -1050,7 +1553,7 @@ fun AdminDashboardScreen(
                     OutlinedTextField(
                         value = suspendReasonText,
                         onValueChange = { suspendReasonText = it },
-                        placeholder = { Text("مثال: مخالطة سياسات الاستخدام") },
+                        placeholder = { Text("مثال: مخالفة شروط الخدمة") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -1113,7 +1616,7 @@ fun AdminDashboardScreen(
         )
     }
 
-    // Ticket Reply Dialog
+    // Support Reply Dialog
     if (selectedTicketForReply != null) {
         AlertDialog(
             onDismissRequest = { selectedTicketForReply = null },
@@ -1138,7 +1641,7 @@ fun AdminDashboardScreen(
                         selectedTicketForReply = null
                         ticketReplyText = ""
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = TrueBlue)
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                 ) {
                     Text("إرسال الرد", color = Color.White)
                 }
@@ -1157,7 +1660,7 @@ fun AdminDashboardScreen(
             onDismissRequest = { previewReceiptUri = null },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.Receipt, contentDescription = null, tint = TrueBlue)
+                    Icon(Icons.Filled.Receipt, contentDescription = null, tint = PrimaryGreen)
                     Text("إشعار دفع شام كاش المرفق", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
@@ -1185,7 +1688,7 @@ fun AdminDashboardScreen(
             confirmButton = {
                 Button(
                     onClick = { previewReceiptUri = null },
-                    colors = ButtonDefaults.buttonColors(containerColor = TrueBlue)
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                 ) {
                     Text("إغلاق المعاينة", color = Color.White)
                 }
@@ -1193,165 +1696,7 @@ fun AdminDashboardScreen(
         )
     }
 
-    // Admin Chat With User Dialog
-    if (userToChatWith != null) {
-        val u = userToChatWith!!
-        val chatRoomId = "admin_chat_${u.id}"
-        val userMessages = allChatMessages.filter { it.rideId == chatRoomId || (it.senderId == u.id || it.receiverId == u.id) }
-
-        AlertDialog(
-            onDismissRequest = {
-                userToChatWith = null
-                adminChatMessageText = ""
-                adminAttachedImageUri = null
-            },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.Chat, contentDescription = null, tint = TrueBlue)
-                    Text("محادثة مع المستخدم: ${u.name}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth().height(360.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Message History
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (userMessages.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                                    Text("لا توجد رسائل سابقة مع هذا المستخدم.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        } else {
-                            items(userMessages) { msg ->
-                                val isAdminMsg = msg.senderId == "admin" || msg.senderId == "system"
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = if (isAdminMsg) Alignment.End else Alignment.Start
-                                ) {
-                                    Surface(
-                                        color = if (isAdminMsg) TrueBlue else MaterialTheme.colorScheme.surface,
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        Column(modifier = Modifier.padding(10.dp)) {
-                                            Text(
-                                                text = if (isAdminMsg) "الأدمن" else u.name,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isAdminMsg) Color.White.copy(alpha = 0.8f) else TrueBlue
-                                            )
-                                            if (!msg.messageText.isNullOrBlank()) {
-                                                Text(msg.messageText, color = if (isAdminMsg) Color.White else MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-                                            }
-                                            if (msg.imageUri != null) {
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                AsyncImage(
-                                                    model = msg.imageUri,
-                                                    contentDescription = "Attached Image",
-                                                    modifier = Modifier.size(120.dp).clip(RoundedCornerShape(8.dp)),
-                                                    contentScale = ContentScale.Crop
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Image preview if selected
-                    if (adminAttachedImageUri != null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth().background(TrueBlue.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(6.dp)
-                        ) {
-                            AsyncImage(
-                                model = adminAttachedImageUri,
-                                contentDescription = "Preview",
-                                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
-                                contentScale = ContentScale.Crop
-                            )
-                            Text("صورة مرفقة جاهزة للإرسال", fontSize = 11.sp, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { adminAttachedImageUri = null }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Filled.Close, contentDescription = "Remove", tint = Color.Red)
-                            }
-                        }
-                    }
-
-                    // Input & Attach Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        IconButton(
-                            onClick = {
-                                val sampleImages = listOf(
-                                    "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957",
-                                    "https://images.unsplash.com/photo-1508921912186-1d1a45ebb3c1",
-                                    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d"
-                                )
-                                adminAttachedImageUri = sampleImages.random()
-                                Toast.makeText(context, "تم إرفاق صورة من ذاكرة الهاتف", Toast.LENGTH_SHORT).show()
-                            }
-                        ) {
-                            Icon(Icons.Filled.Image, contentDescription = "Attach Image", tint = TrueBlue)
-                        }
-
-                        OutlinedTextField(
-                            value = adminChatMessageText,
-                            onValueChange = { adminChatMessageText = it },
-                            placeholder = { Text("اكتب رسالة للمستخدم...", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(20.dp)
-                        )
-
-                        IconButton(
-                            onClick = {
-                                if (adminChatMessageText.isNotBlank() || adminAttachedImageUri != null) {
-                                    viewModel.sendChatMessage(
-                                        rideId = chatRoomId,
-                                        text = adminChatMessageText,
-                                        imageUri = adminAttachedImageUri,
-                                        senderId = "admin",
-                                        receiverId = u.id
-                                    )
-                                    adminChatMessageText = ""
-                                    adminAttachedImageUri = null
-                                    Toast.makeText(context, "تم إرسال الرسالة بنجاح", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        ) {
-                            Icon(Icons.Filled.Send, contentDescription = "Send", tint = TrueBlue)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        userToChatWith = null
-                        adminChatMessageText = ""
-                        adminAttachedImageUri = null
-                    }
-                ) {
-                    Text("إغلاق المحادثة")
-                }
-            }
-        )
-    }
-
-    // User Details & Activity Dialog
+    // User Details Modal
     if (userToViewDetails != null) {
         val u = userToViewDetails!!
         val userTopups = topUpRequests.filter { it.userId == u.id }
@@ -1360,7 +1705,7 @@ fun AdminDashboardScreen(
             onDismissRequest = { userToViewDetails = null },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = TrueBlue)
+                    Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = PrimaryGreen)
                     Text("تفاصيل ونشاط المستخدم: ${u.name}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
@@ -1369,7 +1714,6 @@ fun AdminDashboardScreen(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Profile Header Card
                     GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             AsyncImage(
@@ -1383,7 +1727,7 @@ fun AdminDashboardScreen(
                                 Text("الهاتف: ${u.phone}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("البريد: ${u.email}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("رصيد المحفظة: ${u.walletPoints} نقطة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TrueBlue)
+                                    Text("رصيد المحفظة: ${u.walletPoints} نقطة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen)
                                     Text("التقييم: ${u.rating} ⭐", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -1399,14 +1743,14 @@ fun AdminDashboardScreen(
                         Text("• عدد الرحلات المكتملة: ${u.rideCount} رحلة", fontSize = 12.sp)
                         Text("• حالة الحساب: ${if (u.isSuspended) "معلق (${u.suspendReason ?: "بدون سبب"})" else "نشط ومفعل"}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (u.isSuspended) Color.Red else Color(0xFF10B981))
                         Text("• عدد طلبات شحن شام كاش: ${userTopups.size} طلبات", fontSize = 12.sp)
-                        Text("• التوثيق: ${if (u.isVerified) "حساب موثق للهوية ورقم الهاتف" else "غير موثق"}", fontSize = 12.sp)
+                        Text("• كود الإحالة الخاص به: ${u.referralCode ?: "WASALNI-50"}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen)
                     }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = { userToViewDetails = null },
-                    colors = ButtonDefaults.buttonColors(containerColor = TrueBlue)
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)
                 ) {
                     Text("إغلاق", color = Color.White)
                 }

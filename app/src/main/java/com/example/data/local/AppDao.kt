@@ -99,12 +99,28 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChatMessage(message: ChatMessageEntity)
 
+    @Query("UPDATE chat_messages SET messageText = :newText WHERE id = :messageId")
+    suspend fun updateChatMessageText(messageId: String, newText: String)
+
+    @Query("DELETE FROM chat_messages WHERE id = :messageId")
+    suspend fun deleteChatMessage(messageId: String)
+
+    @Query("DELETE FROM chat_messages WHERE rideId = :rideId")
+    suspend fun deleteChatMessagesForRide(rideId: String)
+
+    // User Updates
+    @Query("UPDATE users SET name = :name, phone = :phone, userRole = :role, walletPoints = :points WHERE id = :userId")
+    suspend fun updateUserData(userId: String, name: String, phone: String, role: String, points: Int)
+
     // Notifications
     @Query("SELECT * FROM notifications WHERE userId = :userId ORDER BY timestamp DESC")
     fun getNotifications(userId: String): Flow<List<NotificationEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNotification(notification: NotificationEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotifications(notifications: List<NotificationEntity>)
 
     @Query("UPDATE notifications SET isRead = 1 WHERE userId = :userId")
     suspend fun markAllNotificationsAsRead(userId: String)
@@ -119,6 +135,17 @@ interface AppDao {
     @Query("UPDATE requested_trips SET status = :status, acceptedByDriverId = :driverId, acceptedByDriverName = :driverName WHERE id = :requestId")
     suspend fun updateRequestedTripStatus(requestId: String, status: String, driverId: String?, driverName: String?)
 
+    @Query("UPDATE requested_trips SET startCity = :start, endCity = :end, departureDate = :date, departureTime = :time, menCount = :men, womenCount = :women, childrenCount = :children WHERE id = :requestId")
+    suspend fun updateRequestedTripDetails(requestId: String, start: String, end: String, date: String, time: String, men: Int, women: Int, children: Int)
+
     @Query("DELETE FROM requested_trips WHERE id = :requestId")
     suspend fun deleteRequestedTrip(requestId: String)
+
+    // Ride Details
+    @Query("UPDATE rides SET startCity = :start, endCity = :end, departureDate = :date, departureTime = :time, pricePerSeat = :price, availableSeats = :seats WHERE id = :rideId")
+    suspend fun updateRideDetails(rideId: String, start: String, end: String, date: String, time: String, price: Double, seats: Int)
+
+    // Wallet Transactions Control
+    @Query("DELETE FROM wallet_transactions WHERE id = :txId")
+    suspend fun deleteWalletTransaction(txId: String)
 }

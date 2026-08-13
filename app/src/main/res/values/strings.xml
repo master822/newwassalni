@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">وصلني</string>
+    <string name="app_name_en">Wassalni</string>
+    <string name="app_tagline">نسافر معاً، نوصل بأمان</string>
+    <string name="notification_channel_name">إشعارات وصلني</string>
+    <string name="notification_channel_desc">إشعارات الرحلات، الحجوزات، الرسائل، والمحفظة</string>
 </resources>

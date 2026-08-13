@@ -13,7 +13,7 @@ data class UserEntity(
     val rating: Float = 4.9f,
     val rideCount: Int = 38,
     val isVerified: Boolean = true,
-    val walletPoints: Int = 150,
+    val walletPoints: Int = 50,
     val isSuspended: Boolean = false,
     val suspendReason: String? = null,
     val registrationDate: String = "2026-01-15",

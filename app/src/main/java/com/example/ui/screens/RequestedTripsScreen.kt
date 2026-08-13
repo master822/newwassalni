@@ -38,6 +38,7 @@ fun RequestedTripsScreen(
     onPublishRequest: (start: String, end: String, date: String, time: String, men: Int, women: Int, children: Int) -> Unit,
     onAcceptRequest: (requestId: String) -> Unit,
     onDeleteRequest: (requestId: String) -> Unit,
+    onCancelAcceptedRequest: ((requestId: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -103,7 +104,7 @@ fun RequestedTripsScreen(
                             color = TrueBlue
                         )
                         Text(
-                            text = "إذا لم تجد رحلة تناسب مواعيدك، يمكنك تثبيت طلب رحلتك هنا مع تحديد عدد الرجال، النساء، والأطفال. وسيتمكن السائقون من الاطلاع على طلبك وقبوله فوراً!",
+                            text = "إذا لم تجد رحلة تناسب مواعيدك، يمكنك تثبيت طلب رحلتك هنا مع تحديد عدد الرجال، النساء، والأطفال. وسيتمكن السائقون من الاطلاع على طلبك وقبوله فوراً! وإذا اعتذر السائق عن الرحلة، تعود الرحلة تلقائياً إلى القائمة ليقبلها سائق آخر.",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -130,9 +131,14 @@ fun RequestedTripsScreen(
                     RequestedTripCard(
                         req = req,
                         isOwner = req.userId == currentUserId,
+                        isAcceptedByMe = req.acceptedByDriverId == currentUserId,
                         onAccept = {
                             onAcceptRequest(req.id)
                             Toast.makeText(context, "تم قبول الطلب بنجاح! ستظهر الرحلة في رحلاتك", Toast.LENGTH_SHORT).show()
+                        },
+                        onCancelAccept = {
+                            onCancelAcceptedRequest?.invoke(req.id)
+                            Toast.makeText(context, "تم إلغاء قبول الطلب وعادت الرحلة لتظهر في قائمة الرحلات المطلوبة", Toast.LENGTH_SHORT).show()
                         },
                         onDelete = {
                             onDeleteRequest(req.id)
@@ -268,7 +274,9 @@ fun CounterRow(
 fun RequestedTripCard(
     req: RequestedTripEntity,
     isOwner: Boolean,
+    isAcceptedByMe: Boolean = false,
     onAccept: () -> Unit,
+    onCancelAccept: (() -> Unit)? = null,
     onDelete: () -> Unit
 ) {
     GlassCard(
@@ -327,7 +335,7 @@ fun RequestedTripCard(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = "مقبول من ${req.acceptedByDriverName ?: "سائق"}",
+                            text = if (isAcceptedByMe) "مقبول بواسطتك (كسائق)" else "مقبول من ${req.acceptedByDriverName ?: "سائق"}",
                             color = TrueBlue,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -400,6 +408,16 @@ fun RequestedTripCard(
                         Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("قبول الطلب (سأكون السائق)")
+                    }
+                } else if (isAcceptedByMe) {
+                    OutlinedButton(
+                        onClick = { onCancelAccept?.invoke() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("إلغاء قبولي وإعادة إتاحتها للآخرين")
                     }
                 }
             }

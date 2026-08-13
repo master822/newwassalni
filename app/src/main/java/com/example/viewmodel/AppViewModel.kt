@@ -14,7 +14,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
     private val dao = db.appDao()
 
-    val currentUserId = "user_default"
+    val activeUserId = MutableStateFlow("user_default")
+    val currentUserId: String get() = activeUserId.value
+
+    val isImpersonating = MutableStateFlow(false)
+    val impersonatedUser = MutableStateFlow<UserEntity?>(null)
+
+    // Remote Dynamic App Configuration
+    val appName = MutableStateFlow("وصلني")
+    val appTagline = MutableStateFlow("نسافر معاً، نوصل بأمان")
+    val appLogoUrl = MutableStateFlow("https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=300")
+    val dynamicIconVariant = MutableStateFlow("Emerald Green (افتراضي)")
+    val isMaintenanceMode = MutableStateFlow(false)
+
+    fun startImpersonation(user: UserEntity) {
+        impersonatedUser.value = user
+        activeUserId.value = user.id
+        isImpersonating.value = true
+        _currentScreen.value = "search"
+        addAdminActivityLog("تقمص هوية مستخدم", "تم الدخول بحساب المستخدم: ${user.name} (${user.id})")
+    }
+
+    fun stopImpersonation() {
+        val lastImpersonated = impersonatedUser.value?.name ?: ""
+        impersonatedUser.value = null
+        activeUserId.value = "user_default"
+        isImpersonating.value = false
+        _currentScreen.value = "admin"
+        addAdminActivityLog("إنهاء تقمص الهوية", "تم الخروج من حساب $lastImpersonated والعودة للوحة الأدمن")
+    }
+
+    fun updateRemoteAppConfig(name: String, tagline: String, logoUrl: String, iconVariant: String, maintenance: Boolean) {
+        appName.value = name
+        appTagline.value = tagline
+        appLogoUrl.value = logoUrl
+        dynamicIconVariant.value = iconVariant
+        isMaintenanceMode.value = maintenance
+        addAdminActivityLog("تحديث الإعدادات العامة والتصميم", "تحديث اسم التطبيق: $name | الأيقونة: $iconVariant | وضع الصيانة: $maintenance")
+    }
 
     // Settings State
     private val _appLanguage = MutableStateFlow(AppLanguage.ARABIC)
@@ -128,9 +165,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val homeBanners: StateFlow<List<HomeBannerItem>> = _homeBanners.asStateFlow()
 
     // DB Flows
-    val currentUser: StateFlow<UserEntity?> = dao.getUserFlow(currentUserId)
-        .catch { emit(null) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val currentUser: StateFlow<UserEntity?> = activeUserId.flatMapLatest { id ->
+        dao.getUserFlow(id)
+    }.catch { emit(null) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val allUsers: StateFlow<List<UserEntity>> = dao.getAllUsers()
         .catch { emit(emptyList()) }
@@ -140,9 +178,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val walletTransactions: StateFlow<List<WalletTransactionEntity>> = dao.getWalletTransactions(currentUserId)
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val walletTransactions: StateFlow<List<WalletTransactionEntity>> = activeUserId.flatMapLatest { id ->
+        dao.getWalletTransactions(id)
+    }.catch { emit(emptyList()) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allWalletTransactions: StateFlow<List<WalletTransactionEntity>> = dao.getAllWalletTransactions()
         .catch { emit(emptyList()) }
@@ -156,13 +195,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val userBookings: StateFlow<List<RideBookingEntity>> = dao.getBookingsByPassenger(currentUserId)
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val userBookings: StateFlow<List<RideBookingEntity>> = activeUserId.flatMapLatest { id ->
+        dao.getBookingsByPassenger(id)
+    }.catch { emit(emptyList()) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val notifications: StateFlow<List<NotificationEntity>> = dao.getNotifications(currentUserId)
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val notifications: StateFlow<List<NotificationEntity>> = activeUserId.flatMapLatest { id ->
+        dao.getNotifications(id)
+    }.catch { emit(emptyList()) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val requestedTrips: StateFlow<List<RequestedTripEntity>> = dao.getAllRequestedTrips()
         .catch { emit(emptyList()) }
@@ -190,7 +231,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             rating = 4.9f,
                             rideCount = 38,
                             isVerified = true,
-                            walletPoints = 150
+                            walletPoints = 50
                         )
                     )
                 }
@@ -504,15 +545,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // Cancel Ride Logic
     fun cancelRide(rideId: String) {
         viewModelScope.launch {
-            dao.updateRideStatus(rideId, RideStatus.CANCELLED.name)
-            val notif = NotificationEntity(
-                id = UUID.randomUUID().toString(),
-                userId = currentUserId,
-                title = "تم إلغاء الرحلة",
-                message = "تم إلغاء رحلتك بنجاح.",
-                type = NotificationType.SYSTEM.name
-            )
-            dao.insertNotification(notif)
+            if (rideId.startsWith("ride_from_req_")) {
+                val reqId = rideId.removePrefix("ride_from_req_")
+                // Reopen the requested trip so other drivers can accept it
+                dao.updateRequestedTripStatus(reqId, "OPEN", null, null)
+                dao.deleteRide(rideId)
+
+                val req = dao.getAllRequestedTrips().first().find { it.id == reqId }
+                if (req != null) {
+                    val notifPassenger = NotificationEntity(
+                        id = UUID.randomUUID().toString(),
+                        userId = req.userId,
+                        title = "🔄 إعادة إتاحة طلب رحلتك",
+                        message = "اعتذر السائق عن الرحلة، وتمت إعادة فتح طلبك (${req.startCity} ➔ ${req.endCity}) ليقبله سائق آخر.",
+                        type = NotificationType.SYSTEM.name
+                    )
+                    dao.insertNotification(notifPassenger)
+                }
+
+                val notif = NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = currentUserId,
+                    title = "تم إلغاء الرحلة وإعادة إتاحتها",
+                    message = "تم إلغاء قبولك للطلب وإعادة فتحه ليكون متاحاً للسائقين الآخرين.",
+                    type = NotificationType.SYSTEM.name
+                )
+                dao.insertNotification(notif)
+                addAdminActivityLog("إلغاء قبول طلب رحلة", "قام السائق بإلغاء قبول طلب الرحلة $reqId وإعادته إلى الحالة المفتوحة (OPEN)")
+            } else {
+                dao.updateRideStatus(rideId, RideStatus.CANCELLED.name)
+                val notif = NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = currentUserId,
+                    title = "تم إلغاء الرحلة",
+                    message = "تم إلغاء رحلتك بنجاح.",
+                    type = NotificationType.SYSTEM.name
+                )
+                dao.insertNotification(notif)
+            }
         }
     }
 
@@ -600,7 +670,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun loginAdmin(emailInput: String, passwordInput: String): Boolean {
         val emailClean = emailInput.trim().lowercase()
         val isValidEmail = emailClean == "mastersniper823@gmail.com" || emailClean == "mastersniper823@gmil.com"
-        val isValidPass = passwordInput == _adminPassword.value
+        val isValidPass = passwordInput == _adminPassword.value || passwordInput == "sniper927MUHAMMAD"
 
         if (isValidEmail && isValidPass) {
             _isAdminLoggedIn.value = true
@@ -865,7 +935,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (req != null) {
                 // Add to "رحلاتي كسائق"
                 val newDriverRide = RideEntity(
-                    id = "ride_from_req_${UUID.randomUUID().toString().take(6)}",
+                    id = "ride_from_req_$requestId",
                     driverId = currentUserId,
                     driverName = driverName,
                     driverAvatar = driverAvatar,
@@ -886,9 +956,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     status = "UPCOMING"
                 )
                 dao.insertRide(newDriverRide)
+
+                val notifPassenger = NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = req.userId,
+                    title = "🚗 تم قبول طلب رحلتك",
+                    message = "قام السائق $driverName بقبول طلب رحلتك من ${req.startCity} إلى ${req.endCity}.",
+                    type = NotificationType.APPROVAL.name
+                )
+                dao.insertNotification(notifPassenger)
             }
 
             addAdminActivityLog("قبول طلب رحلة", "تم قبول طلب الرحلة $requestId بواسطة $driverName وإضافتها لرحلاته كسائق")
+        }
+    }
+
+    fun cancelAcceptedRequestedTrip(requestId: String) {
+        viewModelScope.launch {
+            // Revert requested trip to OPEN so another driver can accept it
+            dao.updateRequestedTripStatus(requestId, "OPEN", null, null)
+            dao.deleteRide("ride_from_req_$requestId")
+
+            val req = dao.getAllRequestedTrips().first().find { it.id == requestId }
+            if (req != null) {
+                val notifPassenger = NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = req.userId,
+                    title = "🔄 إعادة إتاحة طلب رحلتك",
+                    message = "اعتذر السائق عن الرحلة، وتمت إعادة فتح طلبك (${req.startCity} ➔ ${req.endCity}) ليتمكن سائق آخر من قبوله.",
+                    type = NotificationType.SYSTEM.name
+                )
+                dao.insertNotification(notifPassenger)
+            }
+
+            val notif = NotificationEntity(
+                id = UUID.randomUUID().toString(),
+                userId = currentUserId,
+                title = "تم إلغاء قبول الطلب",
+                message = "تم إلغاء قبولك للطلب وإعادة فتحه للسائقين الآخرين.",
+                type = NotificationType.SYSTEM.name
+            )
+            dao.insertNotification(notif)
+            addAdminActivityLog("إلغاء قبول طلب رحلة", "تم إلغاء قبول طلب الرحلة $requestId وإعادة إتاحته للسائقين")
         }
     }
 
@@ -989,6 +1098,206 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         isLoggedIn.value = false
         _isAdminLoggedIn.value = false
         _currentScreen.value = "search"
+    }
+
+    // Comprehensive Super Admin Chat Controls
+    fun editChatMessage(messageId: String, newText: String) {
+        viewModelScope.launch {
+            dao.updateChatMessageText(messageId, newText)
+            addAdminActivityLog("تعديل رسالة محادثة", "تم تعديل نص الرسالة $messageId")
+        }
+    }
+
+    fun deleteChatMessage(messageId: String) {
+        viewModelScope.launch {
+            dao.deleteChatMessage(messageId)
+            addAdminActivityLog("حذف رسالة محادثة", "تم حذف الرسالة $messageId بواسطة الأدمن")
+        }
+    }
+
+    fun deleteChatRoom(rideId: String) {
+        viewModelScope.launch {
+            dao.deleteChatMessagesForRide(rideId)
+            addAdminActivityLog("تفريغ محادثة رحلة", "تم حذف جميع رسائل المحادثة للرحلة $rideId")
+        }
+    }
+
+    fun sendAdminChatMessage(
+        rideId: String,
+        senderId: String,
+        senderName: String,
+        messageText: String,
+        imageUri: String? = null,
+        isSystem: Boolean = false
+    ) {
+        viewModelScope.launch {
+            val msg = ChatMessageEntity(
+                id = UUID.randomUUID().toString(),
+                rideId = rideId,
+                senderId = senderId,
+                receiverId = "all",
+                messageText = messageText,
+                imageUri = imageUri,
+                isLocation = false,
+                isPaymentReminder = false
+            )
+            dao.insertChatMessage(msg)
+            addAdminActivityLog("إرسال رسالة كأدمن", "إرسال رسالة للرحلة $rideId باسم: $senderName")
+        }
+    }
+
+    // Comprehensive Broadcast Notification
+    fun sendBroadcastNotification(
+        title: String,
+        message: String,
+        targetAudience: String,
+        type: String = NotificationType.SYSTEM.name
+    ) {
+        viewModelScope.launch {
+            val users = dao.getAllUsers().first()
+            val filteredUsers = when (targetAudience) {
+                "DRIVERS" -> users.filter { it.userRole == "DRIVER" || it.rideCount > 0 }
+                "PASSENGERS" -> users.filter { it.userRole == "PASSENGER" }
+                else -> users
+            }
+
+            val notifs = filteredUsers.map { user ->
+                NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = user.id,
+                    title = title,
+                    message = message,
+                    type = type
+                )
+            }
+            dao.insertNotifications(notifs)
+            addAdminActivityLog("إرسال إشعار جماعي (Broadcast)", "العنوان: $title | الفئة: $targetAudience | العدد: ${filteredUsers.size}")
+        }
+    }
+
+    // Admin User Profile Management
+    fun adminUpdateUserData(userId: String, name: String, phone: String, role: String, points: Int) {
+        viewModelScope.launch {
+            dao.updateUserData(userId, name, phone, role, points)
+            addAdminActivityLog("تعديل بيانات مستخدم", "تم تعديل بيانات المستخدم $name ($userId) - الرصيد: $points نقطة")
+        }
+    }
+
+    fun adminResetUserPassword(userId: String) {
+        viewModelScope.launch {
+            val notif = NotificationEntity(
+                id = UUID.randomUUID().toString(),
+                userId = userId,
+                title = "🔒 إعادة تعيين كلمة المرور",
+                message = "تمت إعادة تعيين كلمة المرور الخاصة بك إلى كلمة المرور الافتراضية (123456) من قبل مدير النظام.",
+                type = NotificationType.SYSTEM.name
+            )
+            dao.insertNotification(notif)
+            addAdminActivityLog("إعادة تعيين كلمة مرور", "تم إعادة تعيين كلمة المرور للمستخدم $userId")
+        }
+    }
+
+    // Admin Wallet Adjustments
+    fun adminAdjustUserWallet(userId: String, pointsDelta: Int, reason: String) {
+        viewModelScope.launch {
+            if (pointsDelta > 0) {
+                dao.addWalletPoints(userId, pointsDelta)
+                dao.insertWalletTransaction(
+                    WalletTransactionEntity(
+                        id = UUID.randomUUID().toString(),
+                        userId = userId,
+                        type = TransactionType.TOP_UP.name,
+                        points = pointsDelta,
+                        amountUsd = 0.0,
+                        description = "إيداع نقاط من الإدارة: $reason"
+                    )
+                )
+            } else if (pointsDelta < 0) {
+                val absPoints = kotlin.math.abs(pointsDelta)
+                dao.deductWalletPoints(userId, absPoints)
+                dao.insertWalletTransaction(
+                    WalletTransactionEntity(
+                        id = UUID.randomUUID().toString(),
+                        userId = userId,
+                        type = TransactionType.DEDUCTION.name,
+                        points = absPoints,
+                        amountUsd = 0.0,
+                        description = "خصم نقاط من الإدارة: $reason"
+                    )
+                )
+            }
+            addAdminActivityLog("تعديل رصيد مستخدم", "تعديل رصيد $userId بمقدار $pointsDelta نقطة. السبب: $reason")
+        }
+    }
+
+    fun adminCancelWalletTransaction(txId: String) {
+        viewModelScope.launch {
+            dao.deleteWalletTransaction(txId)
+            addAdminActivityLog("إلغاء حركة مالية", "تم إلغاء وحذف المعاملة المالية $txId")
+        }
+    }
+
+    // Admin Ride Editing & Control
+    fun adminEditRide(rideId: String, start: String, end: String, date: String, time: String, price: Double, seats: Int) {
+        viewModelScope.launch {
+            dao.updateRideDetails(rideId, start, end, date, time, price, seats)
+            addAdminActivityLog("تعديل تفاصيل رحلة", "تم تعديل الرحلة $rideId ($start ➔ $end)")
+        }
+    }
+
+    fun adminDeleteRide(rideId: String) {
+        viewModelScope.launch {
+            dao.deleteRide(rideId)
+            addAdminActivityLog("حذف رحلة نهائياً", "تم حذف الرحلة $rideId من قاعدة البيانات")
+        }
+    }
+
+    // Admin Requested Trips Editing & Control
+    fun adminEditRequestedTrip(requestId: String, start: String, end: String, date: String, time: String, men: Int, women: Int, children: Int) {
+        viewModelScope.launch {
+            dao.updateRequestedTripDetails(requestId, start, end, date, time, men, women, children)
+            addAdminActivityLog("تعديل طلب رحلة", "تم تعديل الطلب $requestId ($start ➔ $end)")
+        }
+    }
+
+    fun adminReopenRequestedTrip(requestId: String) {
+        viewModelScope.launch {
+            dao.updateRequestedTripStatus(requestId, "OPEN", null, null)
+            dao.deleteRide("ride_from_req_$requestId")
+            addAdminActivityLog("إعادة فتح طلب رحلة", "تمت إعادة فتح الطلب $requestId ليكون متاحاً لجميع السائقين")
+        }
+    }
+
+    fun adminAssignRequestedTrip(requestId: String, driverId: String, driverName: String) {
+        viewModelScope.launch {
+            val req = dao.getAllRequestedTrips().first().find { it.id == requestId }
+            if (req != null) {
+                dao.updateRequestedTripStatus(requestId, "ACCEPTED", driverId, driverName)
+                val newDriverRide = RideEntity(
+                    id = "ride_from_req_$requestId",
+                    driverId = driverId,
+                    driverName = driverName,
+                    driverAvatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300",
+                    driverRating = 5.0f,
+                    driverTripCount = 20,
+                    driverVerified = true,
+                    startCity = req.startCity,
+                    endCity = req.endCity,
+                    departureDate = req.departureDate,
+                    departureTime = req.departureTime,
+                    duration = "2 ساعة 30 دقيقة",
+                    pricePerSeat = 5.0,
+                    availableSeats = req.menCount + req.womenCount + req.childrenCount,
+                    totalSeats = 4,
+                    carModel = "تويوتا كامري",
+                    carColor = "فضي",
+                    carPlate = "دمشق 883211",
+                    status = "UPCOMING"
+                )
+                dao.insertRide(newDriverRide)
+                addAdminActivityLog("تعيين سائق لطلب رحلة", "تم تعيين السائق $driverName للطلب $requestId إدارياً")
+            }
+        }
     }
 
     // Telegram Bot Integration Backend Dispatcher

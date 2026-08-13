@@ -16,23 +16,3 @@
 local.properties
 .env
 debug.keystore
-
-backend/.env
-backend/node_modules/
-backend/data/*.db
-backend/data/*.db-shm
-backend/data/*.db-wal
-
-# Wasalni temporary / local files
-*.bak
-*.backup
-*.before-*
-*.sqlite-backup
-*.transaction-failed-test
-backend/.auto-backup/
-backend/*.sh
-backend/.env.backup_*
-backend/data/
-auto_fix.py
-auto_fix_postgres.py
-diagnose_and_fix_db.sh
