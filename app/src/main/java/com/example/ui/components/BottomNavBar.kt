@@ -1,8 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +25,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AppLanguage
@@ -50,24 +51,35 @@ fun BottomNavBar(
     unreadMessagesCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
-    val leftTabs = listOf(
-        NavTab.Search,
-        NavTab.RequestedTrips,
-        NavTab.MyRides
-    )
+    // Symmetrical layout to guarantee the center FAB never overlaps any side items
+    val leftTabs = if (isAdmin) {
+        listOf(NavTab.Search, NavTab.RequestedTrips, NavTab.MyRides)
+    } else {
+        listOf(NavTab.Search, NavTab.RequestedTrips)
+    }
 
-    val rightTabs = buildList {
-        add(NavTab.Messages)
-        add(NavTab.Wallet)
-        if (isAdmin) {
-            add(NavTab.Admin)
-        }
+    val rightTabs = if (isAdmin) {
+        listOf(NavTab.Messages, NavTab.Wallet, NavTab.Admin)
+    } else {
+        listOf(NavTab.MyRides, NavTab.Messages)
     }
 
     val isDark = isSystemInDarkTheme()
-    val navBg = if (isDark) Color(0xFF141D1A) else Color(0xFFFFFFFF)
+    val navBg = if (isDark) Color(0xFF121B17) else Color(0xFFFFFFFF)
     val borderColor = if (isDark) Color(0x33269675) else Color(0x1F1E7A5F)
     val isPublishSelected = currentRoute == NavTab.Publish.route
+
+    // Pulsing subtle glow for elevated '+' button
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseGlow by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_glow"
+    )
 
     Box(
         modifier = modifier
@@ -75,22 +87,31 @@ fun BottomNavBar(
             .wrapContentHeight(),
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Main Navigation Bar Surface
+        // Main Navigation Bar Surface with Clean Rounded Elevation
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(22.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), spotColor = PrimaryGreen.copy(alpha = 0.25f))
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                .border(width = 1.dp, color = borderColor, shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
+                .shadow(
+                    elevation = 16.dp,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    spotColor = PrimaryGreen.copy(alpha = 0.24f),
+                    ambientColor = PrimaryGreen.copy(alpha = 0.08f)
+                )
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .border(
+                    width = 1.dp,
+                    color = borderColor,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                ),
             color = navBg
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .height(68.dp)
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
+                    .height(66.dp)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Left Tabs
@@ -105,29 +126,12 @@ fun BottomNavBar(
                     )
                 }
 
-                // Center Column (Space under the elevated + button with Title)
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Bottom,
+                // Dedicated Center Slot for the Elevated Floating '+' FAB
+                Box(
                     modifier = Modifier
-                        .weight(1.15f)
+                        .weight(1.1f)
                         .fillMaxHeight()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { onTabSelected(NavTab.Publish) }
-                        )
-                        .padding(bottom = 6.dp)
-                ) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = AppStrings.get("publish", language),
-                        fontSize = 10.sp,
-                        fontWeight = if (isPublishSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isPublishSelected) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                        maxLines = 1
-                    )
-                }
+                )
 
                 // Right Tabs
                 rightTabs.forEach { tab ->
@@ -144,10 +148,10 @@ fun BottomNavBar(
             }
         }
 
-        // Prominent Elevated Floating '+' Button in the Center
-        val scale by animateFloatAsState(
-            targetValue = if (isPublishSelected) 1.08f else 1.0f,
-            animationSpec = tween(200),
+        // Prominently Elevated Floating '+' Action Button (Raised gracefully above the navbar)
+        val fabScale by animateFloatAsState(
+            targetValue = if (isPublishSelected) 1.1f else 1.0f,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
             label = "fab_scale"
         )
 
@@ -160,27 +164,32 @@ fun BottomNavBar(
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = (-20).dp)
-                .scale(scale)
+                .offset(y = (-22).dp)
+                .scale(fabScale * (if (isPublishSelected) 1f else pulseGlow))
                 .size(56.dp)
-                .shadow(elevationDp.dp, CircleShape, spotColor = PrimaryGreen)
+                .shadow(
+                    elevation = elevationDp.dp,
+                    shape = CircleShape,
+                    spotColor = PrimaryGreen,
+                    ambientColor = GoldAccent.copy(alpha = 0.35f)
+                )
                 .clip(CircleShape)
                 .background(
-                    Brush.verticalGradient(
+                    Brush.linearGradient(
                         colors = if (isPublishSelected) {
                             listOf(Color(0xFF34D399), PrimaryGreen, DarkGreen)
                         } else {
-                            listOf(Color(0xFF269675), PrimaryGreen, DarkGreen)
+                            listOf(Color(0xFF269675), PrimaryGreen, Color(0xFF0D352B))
                         }
                     )
                 )
                 .border(
-                    width = 2.5.dp,
+                    width = 2.dp,
                     brush = Brush.linearGradient(
                         colors = if (isPublishSelected) {
                             listOf(GoldAccent, Color.White, GoldAccent)
                         } else {
-                            listOf(Color.White.copy(alpha = 0.9f), Color(0xFFD4AF37).copy(alpha = 0.6f))
+                            listOf(Color.White, GoldAccent.copy(alpha = 0.85f), Color.White.copy(alpha = 0.8f))
                         }
                     ),
                     shape = CircleShape
@@ -214,10 +223,17 @@ private fun NavTabItem(
     modifier: Modifier = Modifier
 ) {
     val icon = if (isSelected) tab.filledIcon else tab.outlinedIcon
+    
     val tintColor by animateColorAsState(
         targetValue = if (isSelected) PrimaryGreen else if (tab == NavTab.Admin) GoldAccent else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
         animationSpec = tween(200),
         label = "tab_tint"
+    )
+
+    val iconScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.12f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "icon_scale"
     )
 
     Column(
@@ -230,18 +246,19 @@ private fun NavTabItem(
                 indication = ripple(bounded = true),
                 onClick = { onTabSelected(tab) }
             )
+            .padding(vertical = 2.dp)
             .testTag("nav_tab_${tab.route}")
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(10.dp))
                 .background(
-                    if (isSelected) PrimaryGreen.copy(alpha = 0.14f)
+                    if (isSelected) PrimaryGreen.copy(alpha = 0.12f)
                     else if (tab == NavTab.Admin) GoldAccent.copy(alpha = 0.12f)
                     else Color.Transparent
                 )
-                .padding(horizontal = 8.dp, vertical = 3.dp)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
             BadgedBox(
                 badge = {
@@ -250,14 +267,18 @@ private fun NavTabItem(
                             containerColor = ErrorRed,
                             contentColor = Color.White
                         ) {
-                            Text(if (badgeCount > 9) "9+" else "$badgeCount", fontSize = 9.sp)
+                            Text(
+                                text = if (badgeCount > 9) "9+" else "$badgeCount",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     } else if (isAdminBadge) {
                         Badge(
                             containerColor = GoldAccent,
                             contentColor = DarkGreen
                         ) {
-                            Text("Admin", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            Text("Admin", fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -266,7 +287,9 @@ private fun NavTabItem(
                     imageVector = icon,
                     contentDescription = if (tab == NavTab.Admin) "لوحة الأدمن" else AppStrings.get(tab.titleKey, language),
                     tint = tintColor,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier
+                        .size(21.dp)
+                        .scale(iconScale)
                 )
             }
         }
@@ -275,15 +298,19 @@ private fun NavTabItem(
 
         val title = when (tab) {
             NavTab.Admin -> "الأدمن"
+            NavTab.RequestedTrips -> "الطلبات"
             else -> AppStrings.get(tab.titleKey, language)
         }
 
         Text(
             text = title,
-            fontSize = 10.sp,
+            fontSize = 10.5.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = tintColor,
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+            textAlign = TextAlign.Center
         )
     }
 }

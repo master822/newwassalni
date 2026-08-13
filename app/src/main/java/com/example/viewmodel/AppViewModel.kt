@@ -1051,20 +1051,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         )
 
-        // Referral reward (Requirement 6 & 7): Check if referral code matches an existing user
+        // Referral reward: Check if referral code matches an existing user
         if (!referralCodeInput.isNullOrBlank()) {
             val referrer = users.find { it.referralCode.equals(referralCodeInput.trim(), ignoreCase = true) }
             if (referrer != null) {
-                val updatedPoints = referrer.walletPoints + 100
+                val updatedPoints = referrer.walletPoints + 50
                 dao.insertUser(referrer.copy(walletPoints = updatedPoints))
                 dao.insertWalletTransaction(
                     WalletTransactionEntity(
                         id = UUID.randomUUID().toString(),
                         userId = referrer.id,
                         type = "TOP_UP",
-                        points = 100,
+                        points = 50,
                         amountUsd = 0.0,
-                        description = "مكافأة دعوة صديق ($name) عبر كود الإحالة"
+                        description = "مكافأة دعوة صديق ($name) عبر كود الإحالة (+50 نقطة)"
                     )
                 )
                 // Send notification to referrer
@@ -1072,8 +1072,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     NotificationEntity(
                         id = UUID.randomUUID().toString(),
                         userId = referrer.id,
-                        title = "🎁 تم كسب 100 نقطة!",
-                        message = "قام صديقك $name بالتسجيل باستخدام رمز الإحالة الخاص بك $referralCodeInput! تم إضافة 100 نقطة إلى محفظتك.",
+                        title = "🎁 تم كسب 50 نقطة!",
+                        message = "قام صديقك $name بالتسجيل باستخدام رمز الإحالة الخاص بك! تم إضافة 50 نقطة إلى محفظتك بنجاح.",
                         type = "REFERRAL"
                     )
                 )
@@ -1081,7 +1081,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         isLoggedIn.value = true
-        return Pair(true, "تم إنشاء الحساب بنجاح وتم منحك 50 نقطة هدية الترحيب!")
+        return Pair(true, "تم إنشاء الحساب بنجاح وتم منحك 50 نقطة ترحيبية في محفظتك!")
     }
 
     fun loginUser(email: String, name: String) {
