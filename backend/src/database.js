@@ -1,3 +1,4 @@
+require('./env');
 'use strict';
 
 const { Pool } = require('pg');
@@ -6,11 +7,29 @@ if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is not configured');
 }
 
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL is not configured');
+}
+
+let databaseHost = '';
+
+try {
+  databaseHost = new URL(databaseUrl).hostname || '';
+} catch (error) {
+  throw new Error('DATABASE_URL is invalid');
+}
+
+const isRenderDatabase =
+  databaseHost.includes('render.com');
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: false,
+  max: 10,
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000
 });
 
 function makeId(prefix) {
@@ -33,8 +52,51 @@ function makeReferralCode() {
   );
 }
 
-async function initDatabase() {
-  await pool.query(`
+async function initDatabase()
+{
+  const __wasalni_lock_client = await pool.connect();
+
+  try {
+    console.log('[DB] Waiting for Wasalni initialization lock...');
+
+    await __wasalni_lock_client.query(
+      'SELECT pg_advisory_lock(819472)'
+    );
+
+    console.log('[DB] Wasalni initialization lock acquired.');
+
+    // Repair any sequence left behind by a previous interrupted
+    // initialization before CREATE TABLE operations continue.
+    await __wasalni_lock_client.query(`
+      DO $$
+      DECLARE
+        seq_exists BOOLEAN;
+        users_exists BOOLEAN;
+      BEGIN
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_class
+          WHERE relname = 'users_id_seq'
+            AND relkind = 'S'
+        )
+        INTO seq_exists;
+
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_class
+          WHERE relname = 'users'
+            AND relkind = 'r'
+        )
+        INTO users_exists;
+
+        IF seq_exists AND NOT users_exists THEN
+          EXECUTE 'DROP SEQUENCE IF EXISTS users_id_seq CASCADE';
+        END IF;
+      END $$;
+    `);
+
+
+  await __wasalni_lock_client.query(`
     CREATE TABLE IF NOT EXISTS users (
       id BIGSERIAL PRIMARY KEY,
       telegram_id TEXT UNIQUE,
@@ -163,6 +225,18 @@ async function initDatabase() {
   `);
 
   console.log('PostgreSQL database initialized');
+
+  } finally {
+    try {
+      await __wasalni_lock_client.query(
+        'SELECT pg_advisory_unlock(819472)'
+      );
+    } catch (_) {}
+
+    __wasalni_lock_client.release();
+
+    console.log('[DB] Wasalni initialization lock released.');
+  }
 }
 
 async function getUserById(id) {
@@ -954,6 +1028,33 @@ initDatabase().catch(error => {
   console.error('PostgreSQL initialization failed:', error);
   process.exit(1);
 });
+
+
+// ------------------------------------------------------------
+// Wasalni single-flight database initialization.
+//
+// If several parts of the application call initDatabase()
+// simultaneously, they all wait for the SAME promise.
+// ------------------------------------------------------------
+
+const __wasalniOriginalInitDatabase = initDatabase;
+
+async function initDatabaseSingleFlight() {
+  if (global.__wasalniInitPromise) {
+    console.log('[DB] Waiting for existing initialization...');
+    return global.__wasalniInitPromise;
+  }
+
+  global.__wasalniInitPromise =
+    __wasalniOriginalInitDatabase()
+      .finally(() => {
+        global.__wasalniInitPromise = null;
+      });
+
+  return global.__wasalniInitPromise;
+}
+
+initDatabase = initDatabaseSingleFlight;
 
 module.exports = {
   db: pool,

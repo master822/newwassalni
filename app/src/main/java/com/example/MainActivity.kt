@@ -321,7 +321,7 @@ class MainActivity : ComponentActivity() {
                             userPoints = userPoints,
                             onLoginSuccess = { email, name, isAdmin ->
                                 if (isAdmin) {
-                                    viewModel.loginAdmin(email, "sniper927MUHAMMAD")
+                                    viewModel.loginAdmin(email, password = "")
                                     viewModel.setScreen("admin")
                                 } else {
                                     viewModel.loginUser(email, name)

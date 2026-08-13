@@ -2,8 +2,7 @@
 
 require('dotenv').config();
 
-const Database = require('better-sqlite3');
-const path = require('path');
+const db = require('./pg-compat');
 
 /* =========================================================
    CONFIG
@@ -13,7 +12,7 @@ const TOKEN =
   process.env.TELEGRAM_BOT_TOKEN ||
   process.env.BOT_TOKEN ||
   process.env.TELEGRAM_TOKEN;
-
+console.log('[BOT] Token loaded:', !!TOKEN, 'length:', TOKEN?.length || 0);
 const ADMIN_IDS = new Set(
   String(
     process.env.ADMIN_TELEGRAM_IDS ||
@@ -25,40 +24,13 @@ const ADMIN_IDS = new Set(
     .filter(Boolean)
 );
 
-const DB_PATH =
-  process.env.DATABASE_PATH ||
-  path.join(__dirname, '..', 'data', 'wasalni.db');
-
 if (!TOKEN) {
   console.error('❌ BOT TOKEN missing');
   process.exit(1);
 }
 
-const db = new Database(DB_PATH);
 
-console.log('==========================================');
-console.log('WASALNI DATABASE DEBUG');
-console.log('DB_PATH =', path.resolve(DB_PATH));
-console.log(
-  'USERS =',
-  db.prepare(`
-    SELECT id, telegram_id, name
-    FROM users
-    ORDER BY id
-  `).all()
-);
-console.log(
-  'RIDES =',
-  db.prepare(`
-    SELECT id, driver_id, start_city, end_city, departure_date
-    FROM rides
-    ORDER BY created_at DESC
-  `).all()
-);
-console.log('==========================================');
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
 
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
@@ -135,23 +107,26 @@ function ikb(rows) {
 ========================================================= */
 
 function tableExists(name) {
-  return !!db
-    .prepare(`
-      SELECT name
-      FROM sqlite_master
-      WHERE type = 'table'
-      AND name = ?
-    `)
-    .get(name);
+  const row = db.prepare(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_type = 'BASE TABLE'
+      AND table_name = ?
+    LIMIT 1
+  `).get(name);
+
+  return !!row;
 }
 
 function columns(table) {
-  if (!tableExists(table)) return [];
-
-  return db
-    .prepare(`PRAGMA table_info("${table}")`)
-    .all()
-    .map(row => row.name);
+  return db.prepare(`
+    SELECT column_name AS name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = ?
+    ORDER BY ordinal_position
+  `).all(table).map(row => row.name);
 }
 
 function hasColumn(table, column) {
@@ -177,9 +152,11 @@ function col(table, names) {
 function count(table) {
   if (!tableExists(table)) return 0;
 
-  return db
+  const row = db
     .prepare(`SELECT COUNT(*) AS c FROM "${table}"`)
-    .get().c;
+    .get();
+
+  return Number(row?.c || 0);
 }
 
 /* =========================================================
@@ -1023,22 +1000,6 @@ async function bookRide(
     Number(r.price_per_seat || 0) *
     seats;
 
-  if (
-    r.accept_wallet &&
-    points(u) < total
-  ) {
-    return send(
-      chatId,
-      `<b>❌ رصيدك غير كافٍ</b>
-
-السعر:
-<b>${total} نقطة</b>
-
-رصيدك:
-<b>${points(u)} نقطة</b>`
-    );
-  }
-
   const bookingId =
     `B${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -1062,42 +1023,6 @@ async function bookRide(
         seats,
         total
       );
-
-      if (r.accept_wallet) {
-        db.prepare(`
-          UPDATE users
-          SET wallet_points =
-            wallet_points - ?
-          WHERE id = ?
-        `).run(
-          total,
-          u.id
-        );
-
-        if (tableExists('wallet_transactions')) {
-          db.prepare(`
-            INSERT INTO wallet_transactions
-            (
-              id,
-              user_id,
-              type,
-              points,
-              amount_usd,
-              description,
-              status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            `TX${Date.now()}`,
-            u.id,
-            'BOOKING',
-            -total,
-            0,
-            `حجز الرحلة ${rideId}`,
-            'COMPLETED'
-          );
-        }
-      }
 
       db.prepare(`
         UPDATE rides
@@ -1126,11 +1051,140 @@ async function bookRide(
 ${seats}
 
 💰 الإجمالي:
-${total} نقطة`,
+${total} نقدًا`,
     mainKeyboard(id)
   );
 }
+/* =========================================================
+   CANCEL BOOKING
+========================================================= */
 
+async function cancelBooking(
+  chatId,
+  id,
+  bookingId
+) {
+  const u = userByTelegram(id);
+
+  if (!u) {
+    return send(
+      chatId,
+      '⚠️ استخدم /start أولاً.',
+      mainKeyboard(id)
+    );
+  }
+
+  const booking = db.prepare(`
+    SELECT
+      b.*,
+      r.start_city,
+      r.end_city,
+      r.departure_date,
+      r.departure_time,
+      r.driver_id
+    FROM bookings b
+    LEFT JOIN rides r
+      ON r.id = b.ride_id
+    WHERE b.id = ?
+      AND b.passenger_id = ?
+  `).get(
+    bookingId,
+    u.id
+  );
+
+  if (!booking) {
+    return send(
+      chatId,
+      '❌ الحجز غير موجود أو لا يخص حسابك.',
+      mainKeyboard(id)
+    );
+  }
+
+  const status =
+    String(booking.status || '').toUpperCase();
+
+  if (
+    status === 'CANCELLED' ||
+    status === 'CANCELED' ||
+    status === 'REJECTED'
+  ) {
+    return send(
+      chatId,
+      '⚠️ هذا الحجز ملغى بالفعل.',
+      mainKeyboard(id)
+    );
+  }
+
+  const seats =
+    Math.max(
+      1,
+      Number(booking.seats_booked || 0)
+    );
+
+  const transaction =
+    db.transaction(() => {
+
+      // 1. إلغاء الحجز
+      db.prepare(`
+        UPDATE bookings
+        SET status = 'CANCELLED'
+        WHERE id = ?
+          AND passenger_id = ?
+          AND UPPER(COALESCE(status, '')) NOT IN
+            ('CANCELLED', 'CANCELED', 'REJECTED')
+      `).run(
+        bookingId,
+        u.id
+      );
+
+      // 2. إعادة المقاعد للرحلة
+      db.prepare(`
+        UPDATE rides
+        SET available_seats =
+          available_seats + ?
+        WHERE id = ?
+      `).run(
+        seats,
+        booking.ride_id
+      );
+    });
+
+  try {
+    transaction();
+
+    await send(
+      chatId,
+      `<b>✅ تم إلغاء الحجز</b>
+
+🎫 رقم الحجز:
+<code>${esc(bookingId)}</code>
+
+🚗 الرحلة:
+${esc(booking.start_city || '—')} → ${esc(booking.end_city || '—')}
+
+💺 تمت إعادة:
+<b>${seats}</b> مقعد
+
+💵 الدفع كان نقدًا، لذلك لم يتم تغيير رصيد النقاط.`,
+      mainKeyboard(id)
+    );
+
+  } catch (error) {
+
+    console.error(
+      'Cancel booking error:',
+      error
+    );
+
+    await send(
+      chatId,
+      `<b>❌ فشل إلغاء الحجز</b>
+
+<code>${esc(error.message)}</code>`,
+      mainKeyboard(id)
+    );
+  }
+}
 /* =========================================================
    TOPUP
 ========================================================= */
@@ -1298,7 +1352,7 @@ async function sessionMessage(message) {
 
       await send(
         chatId,
-        'سعر المقعد بالنقاط؟'
+        'سعر المقعد؟'
       );
     }
 
@@ -1428,7 +1482,7 @@ async function sessionMessage(message) {
           VALUES
           (
             ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, 1, 1, 1,
+            ?, ?, ?, ?, ?, 1, 1, 0,
             0, 'UPCOMING', ?, ?, ?
           )
         `).run(
@@ -1462,9 +1516,24 @@ async function sessionMessage(message) {
           `).run(u.id);
         }
 
-        await send(
-          chatId,
-          `<b>✅ تم نشر الرحلة</b>
+        console.log('✅ RIDE INSERTED:', rideId);
+
+        if (
+          tableExists('users') &&
+          hasColumn('users', 'ride_count')
+        ) {
+          db.prepare(`
+            UPDATE users
+            SET ride_count =
+              COALESCE(ride_count, 0) + 1
+            WHERE id = ?
+          `).run(u.id);
+        }
+
+        console.log('✅ RIDE COUNT UPDATED:', u.id);
+
+        const successText =
+`<b>✅ تم نشر الرحلة</b>
 
 🚗 رقم الرحلة:
 <code>${rideId}</code>
@@ -1486,22 +1555,45 @@ ${esc(d.meeting)}
 📍 النزول:
 ${esc(d.dropoff)}
 
-📝 ${esc(d.notes || 'لا يوجد')}`,
-          mainKeyboard(id)
-        );
+📝 ${esc(d.notes || 'لا يوجد')}`;
+
+        console.log('📤 SENDING PUBLISH SUCCESS MESSAGE');
+
+        try {
+          await send(
+            chatId,
+            successText,
+            mainKeyboard(id)
+          );
+
+          console.log('✅ PUBLISH SUCCESS MESSAGE SENT');
+        } catch (telegramError) {
+          console.error(
+            '❌ RIDE SAVED BUT SUCCESS MESSAGE FAILED:',
+            telegramError
+          );
+        }
+
       } catch (error) {
         console.error(
-          'Publish ride error:',
+          '❌ Publish ride database error:',
           error
         );
 
-        await send(
-          chatId,
-          `<b>❌ فشل نشر الرحلة</b>
+        try {
+          await send(
+            chatId,
+            `<b>❌ فشل نشر الرحلة</b>
 
 <code>${esc(error.message)}</code>`,
-          mainKeyboard(id)
-        );
+            mainKeyboard(id)
+          );
+        } catch (telegramError) {
+          console.error(
+            '❌ Could not send error message:',
+            telegramError
+          );
+        }
       }
 
       sessions.delete(String(id));
@@ -2636,11 +2728,11 @@ async function callback(q) {
   if (data === 'admin_schema') {
     const tables =
       db.prepare(`
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-        AND name NOT LIKE 'sqlite_%'
-        ORDER BY name
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_type = 'BASE TABLE'
+        ORDER BY table_name
       `).all();
 
     return send(
@@ -2959,21 +3051,13 @@ async function run() {
     '=========================================='
   );
 
-  console.log(
-    `🗄️ Database: ${DB_PATH}`
-  );
-
-  console.log(
-    `📁 Database exists: ${require('fs').existsSync(DB_PATH)}`
-  );
-
   const tables =
     db.prepare(`
-      SELECT name
-      FROM sqlite_master
-      WHERE type = 'table'
-      AND name NOT LIKE 'sqlite_%'
-      ORDER BY name
+      SELECT table_name AS name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_type = 'BASE TABLE'
+      ORDER BY table_name
     `).all();
 
   console.log(

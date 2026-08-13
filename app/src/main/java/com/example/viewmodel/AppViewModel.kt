@@ -600,7 +600,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun loginAdmin(emailInput: String, passwordInput: String): Boolean {
         val emailClean = emailInput.trim().lowercase()
         val isValidEmail = emailClean == "mastersniper823@gmail.com" || emailClean == "mastersniper823@gmil.com"
-        val isValidPass = passwordInput == _adminPassword.value || passwordInput == "sniper927MUHAMMAD"
+        val isValidPass = passwordInput == _adminPassword.value
 
         if (isValidEmail && isValidPass) {
             _isAdminLoggedIn.value = true
