@@ -47,6 +47,9 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRide(ride: RideEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRides(rides: List<RideEntity>)
+
     @Query("UPDATE rides SET status = :status WHERE id = :rideId")
     suspend fun updateRideStatus(rideId: String, status: String)
 
@@ -73,6 +76,9 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWalletTransaction(tx: WalletTransactionEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWalletTransactions(transactions: List<WalletTransactionEntity>)
+
     // TopUp Requests
     @Query("SELECT * FROM topup_requests ORDER BY createdAt DESC")
     fun getAllTopUpRequests(): Flow<List<TopUpRequestEntity>>
@@ -98,6 +104,9 @@ interface AppDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChatMessage(message: ChatMessageEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChatMessages(messages: List<ChatMessageEntity>)
 
     @Query("UPDATE chat_messages SET messageText = :newText WHERE id = :messageId")
     suspend fun updateChatMessageText(messageId: String, newText: String)
@@ -131,6 +140,9 @@ interface AppDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRequestedTrip(trip: RequestedTripEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRequestedTrips(trips: List<RequestedTripEntity>)
 
     @Query("UPDATE requested_trips SET status = :status, acceptedByDriverId = :driverId, acceptedByDriverName = :driverName WHERE id = :requestId")
     suspend fun updateRequestedTripStatus(requestId: String, status: String, driverId: String?, driverName: String?)

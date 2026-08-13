@@ -379,14 +379,17 @@ class MainActivity : ComponentActivity() {
                             userEmail = currentUser?.email ?: "ahmed@wasalni.app",
                             userPhone = currentUser?.phone ?: "+963 988 123 456",
                             userPoints = userPoints,
-                            onLoginSuccess = { email, name, isAdmin ->
-                                if (isAdmin) {
-                                    viewModel.loginAdmin(email, "sniper927MUHAMMAD")
-                                    viewModel.setScreen("admin")
-                                } else {
-                                    viewModel.loginUser(email, name)
+                            onLoginSuccess = { emailOrPhone, password ->
+                                coroutineScope.launch {
+                                    val result = viewModel.loginUserAccount(emailOrPhone, password)
+                                    android.widget.Toast.makeText(this@MainActivity, result.second, android.widget.Toast.LENGTH_SHORT).show()
+                                    if (result.first) {
+                                        showAuthDialog = false
+                                        if (viewModel.isAdminLoggedIn.value) {
+                                            viewModel.setScreen("admin")
+                                        }
+                                    }
                                 }
-                                showAuthDialog = false
                             },
                             onRegisterSuccess = { name, email, phone, pass, refCode ->
                                 coroutineScope.launch {

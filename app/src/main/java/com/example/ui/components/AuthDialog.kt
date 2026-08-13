@@ -1,7 +1,6 @@
 package com.example.ui.components
 
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -34,13 +32,13 @@ enum class AuthMode {
 @Composable
 fun AuthDialog(
     language: AppLanguage,
-    isLoggedIn: Boolean = true,
+    isLoggedIn: Boolean = false,
     isMandatory: Boolean = false,
     userName: String = "أحمد المحمد",
     userEmail: String = "ahmed@wasalni.app",
     userPhone: String = "+963 988 123 456",
     userPoints: Int = 50,
-    onLoginSuccess: (email: String, name: String, isAdmin: Boolean) -> Unit,
+    onLoginSuccess: (emailOrPhone: String, password: String) -> Unit,
     onRegisterSuccess: (name: String, email: String, phone: String, password: String, referralCode: String?) -> Unit,
     onLogout: () -> Unit = {},
     onDismiss: () -> Unit
@@ -152,15 +150,15 @@ fun AuthDialog(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("رقم الهاتف:", fontSize = 13.sp)
-                                Text(userPhone, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("رقم الهاتف:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(userPhone, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("رصيد النقاط المجانية:", fontSize = 13.sp)
+                                Text("رصيد النقاط:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("$userPoints نقطة", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TrueBlue)
                             }
                         }
@@ -169,37 +167,30 @@ fun AuthDialog(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     Button(
-                        onClick = {
-                            onLogout()
-                            Toast.makeText(context, "تم تسجيل الخروج بنجاح", Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        },
+                        onClick = onLogout,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("auth_logout_btn")
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
                         Icon(Icons.Filled.Logout, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("تسجيل الخروج", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("تسجيل الخروج من الحساب", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 } else {
-                    // Not Logged In View
+                    // Auth Forms
                     when (currentMode) {
                         AuthMode.LOGIN -> {
                             OutlinedTextField(
                                 value = emailOrPhone,
                                 onValueChange = { emailOrPhone = it },
-                                label = { Text("البريد الإلكتروني أو رقم الهاتف") },
+                                label = { Text(AppStrings.get("email_or_phone", language)) },
                                 leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth().testTag("auth_email_field")
                             )
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
                             OutlinedTextField(
                                 value = password,
@@ -229,19 +220,7 @@ fun AuthDialog(
                                     if (emailOrPhone.isBlank() || password.isBlank()) {
                                         Toast.makeText(context, "يرجى تعبئة كافة الحقول", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        val inputEmail = emailOrPhone.trim().lowercase()
-                                        val isAdmin = (inputEmail == "mastersniper823@gmail.com" || inputEmail == "mastersniper823@gmil.com") &&
-                                                (password == "sniper927MUHAMMAD" || password == "sniper927")
-
-                                        if (isAdmin) {
-                                            onLoginSuccess("mastersniper823@gmail.com", "Super Admin", true)
-                                            Toast.makeText(context, "أهلاً بك، تم تسجيل الدخول كمشغل رئيسي (الأدمن)", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            val userName = if (inputEmail.contains("@")) inputEmail.substringBefore("@") else inputEmail
-                                            onLoginSuccess(inputEmail, userName, false)
-                                            Toast.makeText(context, "تم تسجيل الدخول بنجاح", Toast.LENGTH_SHORT).show()
-                                        }
-                                        onDismiss()
+                                        onLoginSuccess(emailOrPhone.trim(), password)
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
@@ -265,235 +244,226 @@ fun AuthDialog(
                             }
                         }
 
-                    AuthMode.REGISTER -> {
-                        // Register Mode
-                        OutlinedTextField(
-                            value = fullName,
-                            onValueChange = { fullName = it },
-                            label = { Text(AppStrings.get("full_name", language)) },
-                            leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_register_name")
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = email,
-                            onValueChange = { email = it },
-                            label = { Text(AppStrings.get("email", language)) },
-                            leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_register_email")
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = phone,
-                            onValueChange = { phone = it },
-                            label = { Text(AppStrings.get("phone_number", language)) },
-                            leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_register_phone")
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = { Text(AppStrings.get("password", language)) },
-                            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_register_pass")
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Optional Referral Code Field (Requirement 7)
-                        OutlinedTextField(
-                            value = referralCodeInput,
-                            onValueChange = { referralCodeInput = it },
-                            label = { Text("رمز الإحالة (اختياري)") },
-                            placeholder = { Text("مثال: WASALNI-100") },
-                            leadingIcon = { Icon(Icons.Filled.CardGiftcard, contentDescription = null, tint = TrueBlue) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_register_referral_code")
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Button(
-                            onClick = {
-                                if (fullName.isBlank() || email.isBlank() || phone.isBlank() || password.isBlank()) {
-                                    Toast.makeText(context, "جميع الحقول مطلوبة لتأكيد الحساب", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    // Generate 4-digit OTP
-                                    val generatedCode = (1000..9999).random().toString()
-                                    generatedOtpCode = generatedCode
-                                    currentMode = AuthMode.PHONE_OTP
-                                    Toast.makeText(context, "رمز التأكيد الخاص بك هو: $generatedCode", Toast.LENGTH_LONG).show()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_register_btn")
-                        ) {
-                            Text("تأكيد الرقم والتسجيل", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("لديك حساب بالفعل؟ ", fontSize = 13.sp)
-                            Text(
-                                text = AppStrings.get("login", language),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TrueBlue,
-                                modifier = Modifier.clickable { currentMode = AuthMode.LOGIN }
+                        AuthMode.REGISTER -> {
+                            // Register Mode
+                            OutlinedTextField(
+                                value = fullName,
+                                onValueChange = { fullName = it },
+                                label = { Text(AppStrings.get("full_name", language)) },
+                                leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_register_name")
                             )
-                        }
-                    }
 
-                    AuthMode.PHONE_OTP -> {
-                        // Phone OTP Verification Required
-                        Text(
-                            text = "تم إرسال رمز التحقق المؤلف من 4 أرقام إلى رقم الهاتف $phone",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                        if (generatedOtpCode.isNotEmpty()) {
-                            Surface(
-                                color = TrueBlue.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                            OutlinedTextField(
+                                value = email,
+                                onValueChange = { email = it },
+                                label = { Text(AppStrings.get("email", language)) },
+                                leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_register_email")
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = phone,
+                                onValueChange = { phone = it },
+                                label = { Text(AppStrings.get("phone_number", language)) },
+                                leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_register_phone")
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = password,
+                                onValueChange = { password = it },
+                                label = { Text(AppStrings.get("password", language)) },
+                                leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_register_pass")
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Referral Code Field: 50 points to both new user and referrer!
+                            OutlinedTextField(
+                                value = referralCodeInput,
+                                onValueChange = { referralCodeInput = it },
+                                label = { Text("رمز الإحالة (احصل على 50 نقطة هدية)") },
+                                placeholder = { Text("مثال: WASALNI-100") },
+                                leadingIcon = { Icon(Icons.Filled.CardGiftcard, contentDescription = null, tint = TrueBlue) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_register_referral_code")
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    if (fullName.isBlank() || email.isBlank() || phone.isBlank() || password.isBlank()) {
+                                        Toast.makeText(context, "جميع الحقول مطلوبة لتأكيد الحساب", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val generatedCode = (1000..9999).random().toString()
+                                        generatedOtpCode = generatedCode
+                                        currentMode = AuthMode.PHONE_OTP
+                                        Toast.makeText(context, "رمز التأكيد الخاص بك هو: $generatedCode", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_register_btn")
                             ) {
+                                Text("تأكيد الرقم والتسجيل", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("لديك حساب بالفعل؟ ", fontSize = 13.sp)
                                 Text(
-                                    text = "📱 رمز SMS الافتراضي للتأكيد: $generatedOtpCode",
-                                    fontSize = 12.sp,
+                                    text = AppStrings.get("login", language),
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TrueBlue,
-                                    modifier = Modifier.padding(10.dp)
+                                    modifier = Modifier.clickable { currentMode = AuthMode.LOGIN }
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        AuthMode.PHONE_OTP -> {
+                            Text(
+                                text = "تم إرسال رمز التحقق المؤلف من 4 أرقام إلى رقم الهاتف $phone",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
 
-                        OutlinedTextField(
-                            value = otpCode,
-                            onValueChange = { if (it.length <= 4) otpCode = it },
-                            label = { Text("رمز التحقق OTP") },
-                            leadingIcon = { Icon(Icons.Filled.Sms, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_otp_field")
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Button(
-                            onClick = {
-                                if (otpCode.isBlank() || (otpCode != generatedOtpCode && otpCode != "1234")) {
-                                    Toast.makeText(context, "رمز التحقق غير صحيح، يرجى إدخال $generatedOtpCode", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    onRegisterSuccess(fullName, email, phone, password, referralCodeInput.ifBlank { null })
+                            if (generatedOtpCode.isNotEmpty()) {
+                                Surface(
+                                    color = TrueBlue.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "📱 رمز SMS لتأكيد الهاتف: $generatedOtpCode",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TrueBlue,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
                                 }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_confirm_otp_btn")
-                        ) {
-                            Text(AppStrings.get("confirm_otp", language), color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                            }
 
-                    AuthMode.RESET_PASSWORD -> {
-                        // Password Reset via Phone OTP
-                        Text(
-                            text = "أدخل رقم هاتفك لاستعادة كلمة السر عبر رمز OTP",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = otpCode,
+                                onValueChange = { if (it.length <= 4) otpCode = it },
+                                label = { Text("رمز التحقق OTP") },
+                                leadingIcon = { Icon(Icons.Filled.Sms, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_otp_field")
+                            )
 
-                        OutlinedTextField(
-                            value = phone,
-                            onValueChange = { phone = it },
-                            label = { Text(AppStrings.get("phone_number", language)) },
-                            leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_reset_phone")
-                        )
+                            Spacer(modifier = Modifier.height(16.dp))
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = otpCode,
-                            onValueChange = { if (it.length <= 4) otpCode = it },
-                            label = { Text("رمز OTP المرسل للهاتف") },
-                            leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_reset_otp")
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = newPassword,
-                            onValueChange = { newPassword = it },
-                            label = { Text("كلمة السر الجديدة") },
-                            leadingIcon = { Icon(Icons.Filled.LockReset, contentDescription = null) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("auth_reset_newpass")
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Button(
-                            onClick = {
-                                if (phone.isBlank() || otpCode.length < 4 || newPassword.isBlank()) {
-                                    Toast.makeText(context, "يرجى تعبئة كافة الحقول بشكل صحيح", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "تمت إعادة تعيين كلمة السر بنجاح! يمكنك الآن تسجيل الدخول", Toast.LENGTH_LONG).show()
-                                    currentMode = AuthMode.LOGIN
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_reset_btn")
-                        ) {
-                            Text("تأكيد كلمة السر الجديدة", color = Color.White, fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = {
+                                    if (otpCode.isBlank() || (otpCode != generatedOtpCode && otpCode != "1234")) {
+                                        Toast.makeText(context, "رمز التحقق غير صحيح، يرجى إدخال $generatedOtpCode", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        onRegisterSuccess(fullName, email, phone, password, referralCodeInput.ifBlank { null })
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_confirm_otp_btn")
+                            ) {
+                                Text(AppStrings.get("confirm_otp", language), color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        AuthMode.RESET_PASSWORD -> {
+                            Text(
+                                text = "أدخل رقم هاتفك لاستعادة كلمة السر عبر رمز OTP",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
 
-                        TextButton(onClick = { currentMode = AuthMode.LOGIN }) {
-                            Text("العودة لتسجيل الدخول", color = TrueBlue, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = phone,
+                                onValueChange = { phone = it },
+                                label = { Text(AppStrings.get("phone_number", language)) },
+                                leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_reset_phone")
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = otpCode,
+                                onValueChange = { if (it.length <= 4) otpCode = it },
+                                label = { Text("رمز OTP") },
+                                leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_reset_otp")
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = newPassword,
+                                onValueChange = { newPassword = it },
+                                label = { Text("كلمة المرور الجديدة") },
+                                leadingIcon = { Icon(Icons.Filled.LockReset, contentDescription = null) },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("auth_new_pass")
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    if (phone.isBlank() || otpCode.isBlank() || newPassword.isBlank()) {
+                                        Toast.makeText(context, "جميع الحقول مطلوبة لإعادة تعيين كلمة المرور", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "تم تغيير كلمة المرور بنجاح، يمكنك تسجيل الدخول الآن", Toast.LENGTH_SHORT).show()
+                                        currentMode = AuthMode.LOGIN
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_reset_btn")
+                            ) {
+                                Text("تحديث كلمة المرور", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
 }
