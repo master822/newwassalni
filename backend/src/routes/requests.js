@@ -82,8 +82,11 @@ router.post('/', authenticateToken, async (req, res) => {
 /**
  * 3. Driver accepts requested trip
  * - Atomic transaction with row locking
+ * - Verifies driver has >= 50 wallet points
+ * - Deducts 50 points from driver's wallet (REQUESTED_TRIP_FEE)
+ * - Zero deduction from passenger
  * - Creates matching driver ride
- * - Sends notification to passenger
+ * - Sends notification to passenger and driver
  */
 router.post('/:id/accept', authenticateToken, async (req, res) => {
   const client = await db.pool.connect();
@@ -111,16 +114,55 @@ router.post('/:id/accept', authenticateToken, async (req, res) => {
 
     if (trip.status !== 'OPEN') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, error: 'طلب الرحلة تم قبوله مسبقاً من سائق آخر' });
+      return res.status(400).json({ success: false, error: 'هذا الطلب تم قبوله بالفعل من سائق آخر' });
     }
 
-    // Get Driver details
-    const driverRes = await client.query('SELECT name, avatar_url, rating, ride_count FROM users WHERE id = $1', [driverId]);
+    // Get & Lock Driver details
+    const driverRes = await client.query(
+      'SELECT name, avatar_url, rating, ride_count, wallet_points, role FROM users WHERE id = $1 FOR UPDATE',
+      [driverId]
+    );
+    if (driverRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'حساب السائق غير موجود' });
+    }
+
     const driver = driverRes.rows[0];
 
-    // Update trip to ACCEPTED
+    // Check driver wallet points (Minimum 50 points required)
+    const REQUIRED_POINTS = 50;
+    if (driver.wallet_points < REQUIRED_POINTS) {
+      await client.query('ROLLBACK');
+      return res.status(402).json({
+        success: false,
+        error: 'تحتاج إلى 50 نقطة على الأقل لقبول طلب الرحلة.',
+        requiredPoints: REQUIRED_POINTS,
+        currentPoints: driver.wallet_points,
+      });
+    }
+
+    // Deduct 50 points from Driver
+    await client.query('UPDATE users SET wallet_points = wallet_points - $1 WHERE id = $2', [
+      REQUIRED_POINTS,
+      driverId,
+    ]);
+
+    // Record wallet ledger transaction
     await client.query(
-      'UPDATE requested_trips SET status = $1, accepted_by_driver_id = $2, accepted_by_driver_name = $3 WHERE id = $4',
+      `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status)
+       VALUES ($1, $2, 'REQUESTED_TRIP_FEE', $3, $4, $5, 'COMPLETED')`,
+      [
+        uuidv4(),
+        driverId,
+        -REQUIRED_POINTS,
+        5.0,
+        `رسوم قبول طلب رحلة (خصم ${REQUIRED_POINTS} نقطة) - من ${trip.start_city} إلى ${trip.end_city}`,
+      ]
+    );
+
+    // Update trip to ACCEPTED with driver assignment and timestamp
+    await client.query(
+      'UPDATE requested_trips SET status = $1, accepted_by_driver_id = $2, accepted_by_driver_name = $3, accepted_at = CURRENT_TIMESTAMP WHERE id = $4',
       ['ACCEPTED', driverId, driver.name, id]
     );
 
@@ -165,8 +207,24 @@ router.post('/:id/accept', authenticateToken, async (req, res) => {
       ]
     );
 
+    // Send Notification to Driver
+    await client.query(
+      `INSERT INTO notifications (id, user_id, title, message, type)
+       VALUES ($1, $2, 'تم قبول طلب الرحلة وخصم 50 نقطة', $3, 'SYSTEM')`,
+      [
+        uuidv4(),
+        driverId,
+        `تم قبول طلب الرحلة من ${trip.start_city} إلى ${trip.end_city} بنجاح. تم خصم 50 نقطة كرسوم قبول.`,
+      ]
+    );
+
     await client.query('COMMIT');
-    res.json({ success: true, message: 'تم قبول طلب الرحلة بنجاح وإضافته إلى جدول رحلاتك' });
+    res.json({
+      success: true,
+      message: 'تم قبول طلب الرحلة بنجاح وخصم 50 نقطة من محفظتك',
+      remainingPoints: driver.wallet_points - REQUIRED_POINTS,
+      rideId,
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error accepting requested trip:', err);
@@ -177,7 +235,7 @@ router.post('/:id/accept', authenticateToken, async (req, res) => {
 });
 
 /**
- * 4. Driver cancels accepted trip (Reopens to all other drivers)
+ * 4. Driver cancels accepted trip (Reopens to all other drivers & Refunds 50 Points)
  */
 router.post('/:id/cancel-acceptance', authenticateToken, async (req, res) => {
   const client = await db.pool.connect();
@@ -195,14 +253,55 @@ router.post('/:id/cancel-acceptance', authenticateToken, async (req, res) => {
 
     const trip = checkRes.rows[0];
 
+    // State machine check: ensure trip is in ACCEPTED status to avoid duplicate refunds
+    if (trip.status !== 'ACCEPTED') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'لا يمكن إلغاء قبول طلب غير مقبول حالياً' });
+    }
+
     if (trip.accepted_by_driver_id !== driverId && req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
       await client.query('ROLLBACK');
       return res.status(403).json({ success: false, error: 'غير مصرح لك بإلغاء قبول هذه الرحلة' });
     }
 
-    // Reopen requested trip to OPEN
+    const actualDriverId = trip.accepted_by_driver_id;
+    const REFUND_POINTS = 50;
+
+    // Refund 50 points to driver
+    if (actualDriverId) {
+      await client.query('UPDATE users SET wallet_points = wallet_points + $1 WHERE id = $2', [
+        REFUND_POINTS,
+        actualDriverId,
+      ]);
+
+      // Record refund in wallet ledger
+      await client.query(
+        `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status)
+         VALUES ($1, $2, 'REQUESTED_TRIP_REFUND', $3, $4, $5, 'COMPLETED')`,
+        [
+          uuidv4(),
+          actualDriverId,
+          REFUND_POINTS,
+          5.0,
+          `استرجاع رسوم قبول طلب رحلة بعد الإلغاء (+${REFUND_POINTS} نقطة) - ${trip.start_city} ➔ ${trip.end_city}`,
+        ]
+      );
+
+      // Send Notification to Driver
+      await client.query(
+        `INSERT INTO notifications (id, user_id, title, message, type)
+         VALUES ($1, $2, 'استرجاع 50 نقطة إلى محفظتك', $3, 'SYSTEM')`,
+        [
+          uuidv4(),
+          actualDriverId,
+          `تم إلغاء قبول طلب الرحلة (${trip.start_city} ➔ ${trip.end_city}) واسترجاع 50 نقطة كاملة إلى محفظتك.`,
+        ]
+      );
+    }
+
+    // Reopen requested trip to OPEN and clear driver assignment
     await client.query(
-      'UPDATE requested_trips SET status = $1, accepted_by_driver_id = NULL, accepted_by_driver_name = NULL WHERE id = $2',
+      'UPDATE requested_trips SET status = $1, accepted_by_driver_id = NULL, accepted_by_driver_name = NULL, accepted_at = NULL WHERE id = $2',
       ['OPEN', id]
     );
 
@@ -223,7 +322,8 @@ router.post('/:id/cancel-acceptance', authenticateToken, async (req, res) => {
     await client.query('COMMIT');
     res.json({
       success: true,
-      message: 'تم إلغاء القبول وإعادة فتح الطلب لبقية السائقين بنجاح',
+      message: 'تم إلغاء القبول وإعادة فتح الطلب واسترجاع 50 نقطة بنجاح',
+      refundedPoints: REFUND_POINTS,
     });
   } catch (err) {
     await client.query('ROLLBACK');

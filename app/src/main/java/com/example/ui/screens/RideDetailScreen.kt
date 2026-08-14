@@ -332,7 +332,7 @@ fun RideDetailScreen(
 
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            text = "المبلغ الإجمالي",
+                            text = "المبلغ الإجمالي (نقدًا للسائق)",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -341,6 +341,26 @@ fun RideDetailScreen(
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Black,
                             color = TrueBlue
+                        )
+                    }
+                }
+
+                Surface(
+                    color = Color(0xFFF0FDF4),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Filled.Payments, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(18.dp))
+                        Text(
+                            text = "الدفع نقدًا (Cash) مباشرة للكابتن عند بدء الرحلة. لا يتم خصم نقاط من محفظتك.",
+                            fontSize = 11.sp,
+                            color = Color(0xFF166534),
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }

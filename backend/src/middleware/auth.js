@@ -1,7 +1,11 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'wassalni_secure_jwt_secret_2026_super_production';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'wassalni_refresh_token_secret_2026_production';
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? null : 'wassalni_dev_jwt_secret_token_secure_2026');
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (process.env.NODE_ENV === 'production' ? null : 'wassalni_dev_refresh_token_secret_secure_2026');
+
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET)) {
+  console.error('FATAL: JWT_SECRET and JWT_REFRESH_SECRET environment variables are required in production.');
+}
 
 /**
  * Middleware: Verify Bearer JWT Access Token
@@ -17,7 +21,9 @@ function authenticateToken(req, res, next) {
     });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+  const secret = JWT_SECRET || 'wassalni_dev_jwt_secret_token_secure_2026';
+
+  jwt.verify(token, secret, (err, decoded) => {
     if (err) {
       const isExpired = err.name === 'TokenExpiredError';
       return res.status(401).json({

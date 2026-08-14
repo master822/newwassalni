@@ -407,7 +407,7 @@ fun RequestedTripCard(
                     ) {
                         Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("قبول الطلب (سأكون السائق)")
+                        Text("قبول الطلب (-50 نقطة كابتن)")
                     }
                 } else if (isAcceptedByMe) {
                     OutlinedButton(
@@ -417,7 +417,7 @@ fun RequestedTripCard(
                     ) {
                         Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("إلغاء قبولي وإعادة إتاحتها للآخرين")
+                        Text("إلغاء قبولي (+50 نقطة وإعادة الفتح)")
                     }
                 }
             }

@@ -10,7 +10,7 @@ const {
   authenticateToken,
 } = require('../middleware/auth');
 
-const ACCESS_TOKEN_EXPIRY = '7d'; // 7 days for mobile app session
+const ACCESS_TOKEN_EXPIRY = '1h'; // 1 hour access token for security
 const REFRESH_TOKEN_EXPIRY = '30d';
 
 /**
@@ -124,7 +124,7 @@ router.post('/register', async (req, res) => {
           // Record referrer transaction
           await client.query(
             `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status)
-             VALUES ($1, $2, 'REFERRAL_REWARD', $3, 0.0, $4, 'COMPLETED')`,
+             VALUES ($1, $2, 'REFERRAL_BONUS', $3, 0.0, $4, 'COMPLETED')`,
             [
               uuidv4(),
               referrer.id,

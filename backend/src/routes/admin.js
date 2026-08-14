@@ -366,7 +366,7 @@ router.post('/topup-requests/:id/approve', async (req, res) => {
     // Record wallet ledger transaction
     await client.query(
       `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status)
-       VALUES ($1, $2, 'TOP_UP', $3, $4, $5, 'COMPLETED')`,
+       VALUES ($1, $2, 'TOPUP', $3, $4, $5, 'COMPLETED')`,
       [
         uuidv4(),
         topup.user_id,

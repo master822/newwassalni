@@ -82,14 +82,35 @@ fun WalletScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Title
+        // Title & Cash Payment Notice
         item {
-            Text(
-                text = AppStrings.get("my_wallet", language),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = AppStrings.get("my_wallet", language),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Surface(
+                    color = TrueBlue.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Filled.Info, contentDescription = null, tint = TrueBlue, modifier = Modifier.size(20.dp))
+                        Text(
+                            text = "ملاحظة: تطبيق وصلني يعتمد الدفع نقدًا (Cash) مباشرة للسائق. تستخدم نقاط المحفظة للمكافآت والترويج ورسوم قبول الطلبات الخاصة.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
         }
 
         // Points Header Hero Card
@@ -156,7 +177,7 @@ fun WalletScreen(
             }
         }
 
-        // Referral Card: Invite Friend & Earn 100 Points (Requirements 6 & 7)
+        // Referral Card: Invite Friend & Earn 50 Points
         item {
             GlassCard(
                 modifier = Modifier.fillMaxWidth().testTag("invite_friend_referral_card"),
@@ -177,7 +198,7 @@ fun WalletScreen(
                         ) {
                             Icon(Icons.Filled.CardGiftcard, contentDescription = null, tint = TrueBlue)
                             Text(
-                                text = "🎁 قم بدعوة صديق واكسب 100 نقطة!",
+                                text = "🎁 قم بدعوة صديق واكسب 50 نقطة!",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = TrueBlue
@@ -199,7 +220,7 @@ fun WalletScreen(
                     }
 
                     Text(
-                        text = "عند قيام صديقك بالتسجيل في تطبيق وصلني باستخدام رمز الإحالة الخاص بك، يضاف تلقائياً 100 نقطة لمجموع محفظتك!",
+                        text = "عند قيام صديقك بالتسجيل في تطبيق وصلني باستخدام رمز الإحالة الخاص بك، يضاف تلقائياً 50 نقطة لمجموع محفظتك و50 نقطة لصديقك!",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -210,14 +231,14 @@ fun WalletScreen(
                     ) {
                         Button(
                             onClick = {
-                                val shareMsg = "انضم إلى تطبيق وصلني للرحلات التشاركية واستخدم رمز الإحالة الخاص بي ($userReferralCode) لاحتساب 100 نقطة مجاناً! 🚗💨\n\nحمل التطبيق من الرابط المباشر:\n$appDownloadUrl"
+                                val shareMsg = "انضم إلى تطبيق وصلني للرحلات التشاركية واستخدم رمز الإحالة الخاص بي ($userReferralCode) لاحتساب 50 نقطة مجاناً! 🚗💨\n\nحمل التطبيق من الرابط المباشر:\n$appDownloadUrl"
                                 try {
                                     val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                         putExtra(Intent.EXTRA_TEXT, shareMsg)
                                         type = "text/plain"
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
-                                    val shareIntent = Intent.createChooser(sendIntent, "مشاركة دعوة صديق واكسب 100 نقطة").apply {
+                                    val shareIntent = Intent.createChooser(sendIntent, "مشاركة دعوة صديق واكسب 50 نقطة").apply {
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
                                     context.startActivity(shareIntent)
@@ -239,7 +260,7 @@ fun WalletScreen(
 
                         OutlinedButton(
                             onClick = {
-                                val shareMsg = "انضم إلى تطبيق وصلني للرحلات التشاركية واستخدم رمز الإحالة الخاص بي ($userReferralCode) لاحتساب 100 نقطة مجاناً! 🚗💨\n\nحمل التطبيق من الرابط المباشر:\n$appDownloadUrl"
+                                val shareMsg = "انضم إلى تطبيق وصلني للرحلات التشاركية واستخدم رمز الإحالة الخاص بي ($userReferralCode) لاحتساب 50 نقطة مجاناً! 🚗💨\n\nحمل التطبيق من الرابط المباشر:\n$appDownloadUrl"
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("Wasalni Invite", shareMsg)
                                 clipboard.setPrimaryClip(clip)

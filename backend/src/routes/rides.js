@@ -154,13 +154,13 @@ router.post('/', authenticateToken, async (req, res) => {
 /**
  * 4. Book a ride (passenger)
  * - Atomic seat reservation with row locking
- * - Secure points deduction if wallet is chosen
+ * - 100% Cash Payment to driver directly: NO wallet/points deduction from passenger
  */
 router.post('/:id/book', authenticateToken, async (req, res) => {
   const client = await db.pool.connect();
   try {
     const { id } = req.params;
-    const { seats = 1, useWallet = true } = req.body;
+    const { seats = 1 } = req.body;
     const passengerId = req.user.userId;
 
     if (seats < 1) {
@@ -197,55 +197,25 @@ router.post('/:id/book', authenticateToken, async (req, res) => {
       });
     }
 
-    const passengerRes = await client.query('SELECT name, wallet_points FROM users WHERE id = $1 FOR UPDATE', [passengerId]);
+    const passengerRes = await client.query('SELECT name FROM users WHERE id = $1', [passengerId]);
     if (passengerRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
     }
     const passenger = passengerRes.rows[0];
 
-    // Handle wallet deduction
-    if (useWallet) {
-      const totalPointsNeeded = Math.round(Number(ride.price_per_seat) * 10 * seats);
-      if (passenger.wallet_points < totalPointsNeeded) {
-        await client.query('ROLLBACK');
-        return res.status(402).json({
-          success: false,
-          error: 'رصيد المحفظة غير كافٍ لإتمام حجز الرحلة',
-          requiredPoints: totalPointsNeeded,
-          currentPoints: passenger.wallet_points,
-        });
-      }
-
-      // Deduct points
-      await client.query('UPDATE users SET wallet_points = wallet_points - $1 WHERE id = $2', [
-        totalPointsNeeded,
-        passengerId,
-      ]);
-
-      await client.query(
-        `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status)
-         VALUES ($1, $2, 'TRANSFER', $3, $4, $5, 'COMPLETED')`,
-        [
-          uuidv4(),
-          passengerId,
-          -totalPointsNeeded,
-          ride.price_per_seat * seats,
-          `دفع حجز رحلة ${ride.start_city} ➔ ${ride.end_city} (${seats} مقاعد)`,
-        ]
-      );
-    }
-
-    // Decrement available seats
+    // Decrement available seats atomically
     await client.query('UPDATE rides SET available_seats = available_seats - $1 WHERE id = $2', [seats, id]);
 
-    // Insert booking
+    // Insert booking (Cash payment directly to driver)
     const bookingId = `book_${uuidv4().substring(0, 8)}`;
     await client.query(
       `INSERT INTO ride_bookings (id, ride_id, passenger_id, passenger_name, seats_booked, status)
        VALUES ($1, $2, $3, $4, $5, 'UPCOMING')`,
       [bookingId, id, passengerId, passenger.name, seats]
     );
+
+    const totalCashAmount = (Number(ride.price_per_seat) * seats).toFixed(2);
 
     // Notify passenger
     await client.query(
@@ -254,7 +224,7 @@ router.post('/:id/book', authenticateToken, async (req, res) => {
       [
         uuidv4(),
         passengerId,
-        `تم تأكيد حجز ${seats} مقاعد في رحلة ${ride.start_city} ➔ ${ride.end_city} مع الكابتن ${ride.driver_name}.`,
+        `تم تأكيد حجز ${seats} مقاعد في رحلة ${ride.start_city} ➔ ${ride.end_city} مع الكابتن ${ride.driver_name}. طريقة الدفع: نقدًا للسائق مباشرة ($${totalCashAmount}).`,
       ]
     );
 
@@ -265,16 +235,18 @@ router.post('/:id/book', authenticateToken, async (req, res) => {
       [
         uuidv4(),
         ride.driver_id,
-        `قام الراكب ${passenger.name} بحجز ${seats} مقاعد في رحلتك ${ride.start_city} ➔ ${ride.end_city}.`,
+        `قام الراكب ${passenger.name} بحجز ${seats} مقاعد في رحلتك ${ride.start_city} ➔ ${ride.end_city}. المبلغ المستحق نقدًا: $${totalCashAmount}.`,
       ]
     );
 
     await client.query('COMMIT');
     res.json({
       success: true,
-      message: 'تم تأكيد الحجز بنجاح',
+      message: `تم تأكيد الحجز بنجاح. الدفع نقدًا للسائق مباشرة عند الرحلة ($${totalCashAmount}).`,
       bookingId,
       remainingSeats: ride.available_seats - seats,
+      paymentMethod: 'CASH_TO_DRIVER',
+      totalAmount: totalCashAmount,
     });
   } catch (err) {
     await client.query('ROLLBACK');
