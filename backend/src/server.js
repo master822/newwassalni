@@ -21,7 +21,22 @@ const PORT = process.env.PORT || 3000;
 
 // Security & Middleware
 app.use(helmet());
-app.use(cors({ origin: '*' }));
+
+const isProduction = process.env.NODE_ENV === 'production';
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : (isProduction ? ['https://api.wassalni.sy', 'https://wassalni.sy'] : '*');
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins === '*' || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Blocked by CORS policy'));
+  },
+  credentials: true,
+}));
+
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }

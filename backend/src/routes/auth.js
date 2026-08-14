@@ -10,13 +10,14 @@ const {
   authenticateToken,
 } = require('../middleware/auth');
 
-const ACCESS_TOKEN_EXPIRY = '1h'; // 1 hour access token for security
+const ACCESS_TOKEN_EXPIRY = '1h'; // 1 hour access token
 const REFRESH_TOKEN_EXPIRY = '30d';
 
 /**
  * 1. Register a new user
  * - Exactly 50 points welcome bonus for the new user
  * - If referral code provided: +50 points to new user, +50 points to referrer
+ * - Always creates USER or DRIVER (Never ADMIN or SUPER_ADMIN)
  * - Atomic database transaction
  */
 router.post('/register', async (req, res) => {
@@ -60,13 +61,10 @@ router.post('/register', async (req, res) => {
     const myReferralCode = `WASALNI-${uuidv4().substring(0, 5).toUpperCase()}`;
 
     // Exactly 50 points starting bonus
-    let startingPoints = 50;
+    const startingPoints = 50;
 
-    // Check if initial admin account seeding (if specific super admin role requested upon first registration with env key)
-    let initialRole = 'USER';
-    if (process.env.INITIAL_ADMIN_EMAIL && email.trim().toLowerCase() === process.env.INITIAL_ADMIN_EMAIL.toLowerCase()) {
-      initialRole = 'SUPER_ADMIN';
-    }
+    // Standard public registration is strictly restricted to regular USER role
+    const initialRole = 'USER';
 
     const insertUserQuery = `
       INSERT INTO users (id, name, email, phone, password_hash, wallet_points, role, user_role, referral_code)
@@ -101,7 +99,7 @@ router.post('/register', async (req, res) => {
       [uuidv4(), userId]
     );
 
-    // Process Referral Bonus (+50 points to referrer)
+    // Process Referral Bonus (+50 points to referrer, 50+50 model)
     if (referralCode && referralCode.trim()) {
       const cleanRefCode = referralCode.trim();
       const referrerRes = await client.query(
@@ -147,7 +145,8 @@ router.post('/register', async (req, res) => {
       }
     }
 
-    // Generate JWT Tokens
+    // Generate JWT Tokens with unique JTI for rotation
+    const refreshTokenId = uuidv4();
     const accessToken = jwt.sign(
       { userId: newUser.id, email: newUser.email, role: newUser.role },
       JWT_SECRET,
@@ -155,7 +154,7 @@ router.post('/register', async (req, res) => {
     );
 
     const refreshToken = jwt.sign(
-      { userId: newUser.id, email: newUser.email },
+      { userId: newUser.id, email: newUser.email, jti: refreshTokenId },
       JWT_REFRESH_SECRET,
       { expiresIn: REFRESH_TOKEN_EXPIRY }
     );
@@ -165,7 +164,7 @@ router.post('/register', async (req, res) => {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await client.query(
       'INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-      [uuidv4(), newUser.id, refreshHash, expiresAt]
+      [refreshTokenId, newUser.id, refreshHash, expiresAt]
     );
 
     await client.query('COMMIT');
@@ -201,8 +200,8 @@ router.post('/register', async (req, res) => {
 
 /**
  * 2. User Login
- * - Checks bcrypt password against PostgreSQL DB
- * - Returns JWT access token & refresh token
+ * - Generic error message on failure
+ * - Checks account suspension & revocation
  */
 router.post('/login', async (req, res) => {
   try {
@@ -236,6 +235,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
     }
 
+    const refreshTokenId = uuidv4();
     const accessToken = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
       JWT_SECRET,
@@ -243,7 +243,7 @@ router.post('/login', async (req, res) => {
     );
 
     const refreshToken = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, jti: refreshTokenId },
       JWT_REFRESH_SECRET,
       { expiresIn: REFRESH_TOKEN_EXPIRY }
     );
@@ -252,7 +252,7 @@ router.post('/login', async (req, res) => {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await db.query(
       'INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-      [uuidv4(), user.id, refreshHash, expiresAt]
+      [refreshTokenId, user.id, refreshHash, expiresAt]
     );
 
     res.json({
@@ -281,49 +281,108 @@ router.post('/login', async (req, res) => {
 });
 
 /**
- * 3. Refresh Access Token
+ * 3. Refresh Access Token with Token Rotation & Reuse Detection
  */
 router.post('/refresh', async (req, res) => {
+  const client = await db.pool.connect();
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) {
       return res.status(400).json({ success: false, error: 'Refresh token is required' });
     }
 
-    jwt.verify(refreshToken, JWT_REFRESH_SECRET, async (err, decoded) => {
-      if (err) {
-        return res.status(401).json({ success: false, error: 'رمز التحديث غير صالح أو منتهي الصلاحية' });
-      }
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+    } catch (err) {
+      return res.status(401).json({ success: false, error: 'رمز التحديث غير صالح أو منتهي الصلاحية' });
+    }
 
-      const userRes = await db.query(
-        'SELECT id, email, role, is_suspended FROM users WHERE id = $1',
-        [decoded.userId]
+    await client.query('BEGIN');
+
+    const tokenId = decoded.jti;
+    if (tokenId) {
+      const tokenRecordRes = await client.query(
+        'SELECT * FROM refresh_tokens WHERE id = $1 FOR UPDATE',
+        [tokenId]
       );
 
-      if (userRes.rows.length === 0 || userRes.rows[0].is_suspended) {
-        return res.status(403).json({ success: false, error: 'المستخدم غير متاح أو موقوف' });
+      if (tokenRecordRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ success: false, error: 'رمز التحديث غير مسجل' });
       }
 
-      const user = userRes.rows[0];
-      const newAccessToken = jwt.sign(
-        { userId: user.id, email: user.email, role: user.role },
-        JWT_SECRET,
-        { expiresIn: ACCESS_TOKEN_EXPIRY }
-      );
+      const tokenRecord = tokenRecordRes.rows[0];
 
-      res.json({
-        success: true,
-        accessToken: newAccessToken,
-      });
+      // Reuse detection: if token is already revoked, invalidate all sessions for safety
+      if (tokenRecord.is_revoked) {
+        await client.query(
+          'UPDATE refresh_tokens SET is_revoked = TRUE WHERE user_id = $1',
+          [decoded.userId]
+        );
+        await client.query('COMMIT');
+        return res.status(401).json({
+          success: false,
+          error: 'تم اكتشاف إعادة استخدام رمز ملغى. تم إلغاء جميع الجلسات النشطة لأسباب أمنية.',
+        });
+      }
+
+      // Mark the current refresh token as revoked/used
+      await client.query(
+        'UPDATE refresh_tokens SET is_revoked = TRUE WHERE id = $1',
+        [tokenId]
+      );
+    }
+
+    const userRes = await client.query(
+      'SELECT id, email, role, is_suspended FROM users WHERE id = $1',
+      [decoded.userId]
+    );
+
+    if (userRes.rows.length === 0 || userRes.rows[0].is_suspended) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ success: false, error: 'المستخدم غير متاح أو موقوف' });
+    }
+
+    const user = userRes.rows[0];
+    const newAccessToken = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: ACCESS_TOKEN_EXPIRY }
+    );
+
+    const newRefreshTokenId = uuidv4();
+    const newRefreshToken = jwt.sign(
+      { userId: user.id, email: user.email, jti: newRefreshTokenId },
+      JWT_REFRESH_SECRET,
+      { expiresIn: REFRESH_TOKEN_EXPIRY }
+    );
+
+    const newRefreshHash = await bcrypt.hash(newRefreshToken, 8);
+    const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await client.query(
+      'INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+      [newRefreshTokenId, user.id, newRefreshHash, newExpiresAt]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
     });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Refresh token error:', err);
     res.status(500).json({ success: false, error: 'Failed to refresh token' });
+  } finally {
+    client.release();
   }
 });
 
 /**
- * 4. User Logout
+ * 4. User Logout (Revoke all user refresh tokens)
  */
 router.post('/logout', authenticateToken, async (req, res) => {
   try {
@@ -389,7 +448,7 @@ router.post('/send-otp', async (req, res) => {
 
     const cleanPhone = phone.trim();
 
-    // Check rate limiting: max 3 requests in the last 10 minutes
+    // Check rate limiting: max 5 requests in 10 minutes
     const rateCheck = await db.query(
       "SELECT count(*) FROM otp_verifications WHERE phone = $1 AND created_at > NOW() - INTERVAL '10 minutes'",
       [cleanPhone]
@@ -412,8 +471,6 @@ router.post('/send-otp', async (req, res) => {
       [uuidv4(), cleanPhone, otpHash, expiresAt]
     );
 
-    // In production environment, send SMS via SMS Gateway.
-    // In dev/testing mode, we provide a structured safe response.
     const isDev = process.env.NODE_ENV !== 'production';
 
     res.json({
@@ -461,7 +518,6 @@ router.post('/verify-otp', async (req, res) => {
 
     await db.query('UPDATE otp_verifications SET is_used = TRUE WHERE id = $1', [otpRecord.id]);
 
-    // Issue a short-lived verification token
     const verifyToken = jwt.sign(
       { phone: cleanPhone, verified: true },
       JWT_SECRET,

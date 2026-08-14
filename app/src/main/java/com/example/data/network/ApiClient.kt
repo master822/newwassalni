@@ -1,6 +1,7 @@
 package com.example.data.network
 
 import android.content.Context
+import com.example.BuildConfig
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -11,9 +12,8 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
-    // Default base URL for development emulator or production
-    // In Android Emulator, 10.0.2.2 maps to host machine localhost:3000
-    private const val DEFAULT_BASE_URL = "http://10.0.2.2:3000/"
+    // Default base URL dynamically resolved based on build type (HTTPS in Release, Emulator loopback in Debug)
+    val DEFAULT_BASE_URL: String = BuildConfig.BASE_URL
 
     @Volatile
     private var apiService: ApiService? = null
@@ -30,7 +30,11 @@ object ApiClient {
         val tokenManager = TokenManager.getInstance(context)
 
         val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BODY
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
         }
 
         val okHttpClient = OkHttpClient.Builder()
@@ -45,8 +49,10 @@ object ApiClient {
             .addLast(KotlinJsonAdapterFactory())
             .build()
 
+        val cleanUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+
         return Retrofit.Builder()
-            .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+            .baseUrl(cleanUrl)
             .client(okHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()

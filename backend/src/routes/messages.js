@@ -5,11 +5,59 @@ const { v4: uuidv4 } = require('uuid');
 const { authenticateToken } = require('../middleware/auth');
 
 /**
- * 1. Get messages for a ride
+ * Helper: Check if user has permission to access ride chat room
+ */
+async function canAccessRideChat(userId, userRole, rideId) {
+  if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
+    return true;
+  }
+
+  // Check if driver
+  const rideRes = await db.query('SELECT driver_id FROM rides WHERE id = $1', [rideId]);
+  if (rideRes.rows.length > 0 && rideRes.rows[0].driver_id === userId) {
+    return true;
+  }
+
+  // Check if booked passenger
+  const bookingRes = await db.query(
+    "SELECT 1 FROM ride_bookings WHERE ride_id = $1 AND passenger_id = $2 AND status != 'CANCELLED'",
+    [rideId, userId]
+  );
+  if (bookingRes.rows.length > 0) {
+    return true;
+  }
+
+  // Check if requested trip user
+  if (rideId.startsWith('ride_from_req_')) {
+    const reqId = rideId.replace('ride_from_req_', '');
+    const reqRes = await db.query('SELECT user_id, accepted_by_driver_id FROM requested_trips WHERE id = $1', [reqId]);
+    if (reqRes.rows.length > 0) {
+      if (reqRes.rows[0].user_id === userId || reqRes.rows[0].accepted_by_driver_id === userId) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * 1. Get messages for a ride (Scoped to ride participants)
  */
 router.get('/:rideId', authenticateToken, async (req, res) => {
   try {
     const { rideId } = req.params;
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+
+    const allowed = await canAccessRideChat(userId, userRole, rideId);
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        error: 'ليس لديك صلاحية الوصول إلى محادثة هذه الرحلة',
+      });
+    }
+
     const result = await db.query(
       'SELECT * FROM chat_messages WHERE ride_id = $1 ORDER BY created_at ASC',
       [rideId]
@@ -22,16 +70,25 @@ router.get('/:rideId', authenticateToken, async (req, res) => {
 });
 
 /**
- * 2. Send a new chat message
+ * 2. Send a new chat message (Scoped to ride participants)
  */
 router.post('/:rideId', authenticateToken, async (req, res) => {
   try {
     const { rideId } = req.params;
     const { message, imageUri = null, isLocation = false, latitude = null, longitude = null } = req.body;
     const senderId = req.user.userId;
+    const userRole = req.user.role;
 
     if (!message && !imageUri && !isLocation) {
       return res.status(400).json({ success: false, error: 'محتوى الرسالة مطلوب' });
+    }
+
+    const allowed = await canAccessRideChat(senderId, userRole, rideId);
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        error: 'ليس لديك صلاحية إرسال رسائل في محادثة هذه الرحلة',
+      });
     }
 
     const userRes = await db.query('SELECT name, avatar_url FROM users WHERE id = $1', [senderId]);
