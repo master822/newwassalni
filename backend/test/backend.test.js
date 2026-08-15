@@ -272,3 +272,40 @@ test('TEST 20: Account deletion cleanly revokes tokens and purges active session
   assert.strictEqual(userAccount.isDeleted, true, 'Account is marked deleted');
   assert.strictEqual(userAccount.activeTokens.length, 0, 'Active tokens are revoked');
 });
+
+// TEST 21: Database migration SQL schema integrity & public qualification
+test('TEST 21: Database migration SQL schema integrity & public qualification', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const sqlPath = path.join(__dirname, '../src/migrations/init.sql');
+  const sql = fs.readFileSync(sqlPath, 'utf8');
+
+  // Must not have CREATE EXTENSION that causes code 3F000
+  assert.strictEqual(sql.includes('CREATE EXTENSION'), false, 'init.sql must not rely on CREATE EXTENSION');
+
+  // Must ensure public schema and set search_path
+  assert.ok(sql.includes('CREATE SCHEMA IF NOT EXISTS public'), 'init.sql must ensure public schema');
+  assert.ok(sql.includes('SET search_path TO public'), 'init.sql must set search_path to public');
+
+  // Must contain all core application tables explicitly in public schema
+  const requiredTables = [
+    'public.users',
+    'public.refresh_tokens',
+    'public.otp_verifications',
+    'public.rides',
+    'public.ride_bookings',
+    'public.requested_trips',
+    'public.wallet_transactions',
+    'public.topup_requests',
+    'public.notifications',
+    'public.chat_messages',
+    'public.admin_activity_logs',
+    'public.support_tickets',
+    'public.app_settings'
+  ];
+
+  for (const table of requiredTables) {
+    assert.ok(sql.includes(`CREATE TABLE IF NOT EXISTS ${table}`), `Table ${table} must be defined`);
+  }
+});
+

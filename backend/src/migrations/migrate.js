@@ -13,9 +13,10 @@ async function runMigration() {
 
     const sqlPath = path.join(__dirname, 'init.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
+
     await client.query(sql);
 
-    console.log('✅ PostgreSQL migrations completed successfully');
+    console.log('✅ PostgreSQL database migrations completed successfully');
   } catch (err) {
     console.error('❌ Migration failed:', err.message || err);
     throw err;
@@ -26,8 +27,14 @@ async function runMigration() {
 
 if (require.main === module) {
   runMigration()
-    .then(() => process.exit(0))
-    .catch(() => process.exit(1));
+    .then(() => {
+      console.log('🏁 Migration process finished.');
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('🛑 Migration process failed with error:', err.message || err);
+      process.exit(1);
+    });
 }
 
 module.exports = runMigration;
