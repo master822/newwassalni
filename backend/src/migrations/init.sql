@@ -1,14 +1,10 @@
 -- ==========================================================
 -- Wassalni (وصلني) Production Database Schema - PostgreSQL
--- Explicitly targeting and qualifying the 'public' schema
+-- Schema-agnostic, resilient, and idempotent
 -- ==========================================================
 
--- 0. Ensure public schema exists and search_path is set to public
-CREATE SCHEMA IF NOT EXISTS public;
-SET search_path TO public;
-
 -- 1. Users Table
-CREATE TABLE IF NOT EXISTS public.users (
+CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(120) NOT NULL,
     email VARCHAR(120) UNIQUE NOT NULL,
@@ -30,9 +26,9 @@ CREATE TABLE IF NOT EXISTS public.users (
 );
 
 -- 2. Refresh Tokens Table (JWT rotation & revocation)
-CREATE TABLE IF NOT EXISTS public.refresh_tokens (
+CREATE TABLE IF NOT EXISTS refresh_tokens (
     id VARCHAR(64) PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(255) NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     is_revoked BOOLEAN DEFAULT FALSE,
@@ -40,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.refresh_tokens (
 );
 
 -- 3. OTP Verifications Table (Server-Side Rate Limited & Hashed OTP)
-CREATE TABLE IF NOT EXISTS public.otp_verifications (
+CREATE TABLE IF NOT EXISTS otp_verifications (
     id VARCHAR(64) PRIMARY KEY,
     phone VARCHAR(32) NOT NULL,
     otp_hash VARCHAR(255) NOT NULL,
@@ -51,9 +47,9 @@ CREATE TABLE IF NOT EXISTS public.otp_verifications (
 );
 
 -- 4. Rides Table (Published by Drivers)
-CREATE TABLE IF NOT EXISTS public.rides (
+CREATE TABLE IF NOT EXISTS rides (
     id VARCHAR(64) PRIMARY KEY,
-    driver_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    driver_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     driver_name VARCHAR(120) NOT NULL,
     driver_avatar TEXT DEFAULT '',
     driver_rating NUMERIC(3, 2) DEFAULT 5.0,
@@ -79,10 +75,10 @@ CREATE TABLE IF NOT EXISTS public.rides (
 );
 
 -- 5. Ride Bookings Table (Passengers booking seats)
-CREATE TABLE IF NOT EXISTS public.ride_bookings (
+CREATE TABLE IF NOT EXISTS ride_bookings (
     id VARCHAR(64) PRIMARY KEY,
-    ride_id VARCHAR(64) NOT NULL REFERENCES public.rides(id) ON DELETE CASCADE,
-    passenger_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    ride_id VARCHAR(64) NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+    passenger_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     passenger_name VARCHAR(120) NOT NULL,
     seats_booked INT NOT NULL DEFAULT 1,
     status VARCHAR(32) DEFAULT 'UPCOMING', -- UPCOMING, COMPLETED, CANCELLED
@@ -90,9 +86,9 @@ CREATE TABLE IF NOT EXISTS public.ride_bookings (
 );
 
 -- 6. Requested Trips Table (Trip requests posted by passengers)
-CREATE TABLE IF NOT EXISTS public.requested_trips (
+CREATE TABLE IF NOT EXISTS requested_trips (
     id VARCHAR(64) PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user_name VARCHAR(120) NOT NULL,
     user_phone VARCHAR(32) NOT NULL,
     user_avatar TEXT DEFAULT '',
@@ -104,16 +100,16 @@ CREATE TABLE IF NOT EXISTS public.requested_trips (
     women_count INT DEFAULT 0,
     children_count INT DEFAULT 0,
     status VARCHAR(32) DEFAULT 'OPEN', -- OPEN, ACCEPTED, CANCELLED
-    accepted_by_driver_id VARCHAR(64) REFERENCES public.users(id) ON DELETE SET NULL,
+    accepted_by_driver_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
     accepted_by_driver_name VARCHAR(120) DEFAULT NULL,
     accepted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 7. Wallet Transactions Table (Double-entry Ledger)
-CREATE TABLE IF NOT EXISTS public.wallet_transactions (
+CREATE TABLE IF NOT EXISTS wallet_transactions (
     id VARCHAR(64) PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     type VARCHAR(32) NOT NULL, -- WELCOME_BONUS, REFERRAL_REWARD, TOP_UP, TRANSFER, COMMISSION, DEDUCTION, ADMIN_ADJUSTMENT
     points INT NOT NULL,
     amount_usd NUMERIC(8, 2) DEFAULT 0.0,
@@ -123,24 +119,24 @@ CREATE TABLE IF NOT EXISTS public.wallet_transactions (
 );
 
 -- 8. TopUp Requests Table (Cham Cash receipts)
-CREATE TABLE IF NOT EXISTS public.topup_requests (
+CREATE TABLE IF NOT EXISTS topup_requests (
     id VARCHAR(64) PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     user_name VARCHAR(120) NOT NULL,
     package_points INT NOT NULL,
     package_price_usd NUMERIC(8, 2) NOT NULL,
     receipt_image_path TEXT DEFAULT '',
     status VARCHAR(32) DEFAULT 'PENDING', -- PENDING, APPROVED, REJECTED
     rejection_reason TEXT DEFAULT NULL,
-    processed_by_admin_id VARCHAR(64) REFERENCES public.users(id) ON DELETE SET NULL,
+    processed_by_admin_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
 );
 
 -- 9. Notifications Table
-CREATE TABLE IF NOT EXISTS public.notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id VARCHAR(64) PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(120) NOT NULL,
     message TEXT NOT NULL,
     type VARCHAR(32) DEFAULT 'SYSTEM', -- SYSTEM, BOOKING, APPROVAL, REFERRAL, BROADCAST
@@ -149,10 +145,10 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 );
 
 -- 10. Chat Messages Table
-CREATE TABLE IF NOT EXISTS public.chat_messages (
+CREATE TABLE IF NOT EXISTS chat_messages (
     id VARCHAR(64) PRIMARY KEY,
-    ride_id VARCHAR(64) NOT NULL REFERENCES public.rides(id) ON DELETE CASCADE,
-    sender_id VARCHAR(64) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    ride_id VARCHAR(64) NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+    sender_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     sender_name VARCHAR(120) NOT NULL,
     sender_avatar TEXT DEFAULT '',
     message TEXT NOT NULL,
@@ -166,7 +162,7 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
 );
 
 -- 11. Admin Activity Logs Table
-CREATE TABLE IF NOT EXISTS public.admin_activity_logs (
+CREATE TABLE IF NOT EXISTS admin_activity_logs (
     id VARCHAR(64) PRIMARY KEY,
     admin_id VARCHAR(64) NOT NULL,
     admin_name VARCHAR(120) NOT NULL,
@@ -178,9 +174,9 @@ CREATE TABLE IF NOT EXISTS public.admin_activity_logs (
 );
 
 -- 12. Support Tickets Table
-CREATE TABLE IF NOT EXISTS public.support_tickets (
+CREATE TABLE IF NOT EXISTS support_tickets (
     id VARCHAR(64) PRIMARY KEY,
-    user_id VARCHAR(64) REFERENCES public.users(id) ON DELETE SET NULL,
+    user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
     user_name VARCHAR(120) NOT NULL,
     user_email VARCHAR(120) NOT NULL,
     subject VARCHAR(200) NOT NULL,
@@ -193,19 +189,19 @@ CREATE TABLE IF NOT EXISTS public.support_tickets (
 );
 
 -- 13. App Settings Table (Dynamic Remote Configuration)
-CREATE TABLE IF NOT EXISTS public.app_settings (
+CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(64) PRIMARY KEY,
     setting_value TEXT NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Idempotent column additions in case tables already exist from previous partial migrations
-ALTER TABLE public.requested_trips ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS fcm_token TEXT DEFAULT NULL;
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS suspend_reason TEXT DEFAULT NULL;
+-- Idempotent column additions in case tables already exist
+ALTER TABLE requested_trips ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token TEXT DEFAULT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspend_reason TEXT DEFAULT NULL;
 
 -- Default Settings Seed
-INSERT INTO public.app_settings (setting_key, setting_value) VALUES
+INSERT INTO app_settings (setting_key, setting_value) VALUES
     ('app_name', 'وصلني'),
     ('app_tagline', 'نسافر معاً، نوصل بأمان'),
     ('app_logo_url', 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=300'),
@@ -217,11 +213,11 @@ INSERT INTO public.app_settings (setting_key, setting_value) VALUES
     ('app_download_url', 'https://wasalni.app/download')
 ON CONFLICT (setting_key) DO NOTHING;
 
--- Performance Indexes on public tables
-CREATE INDEX IF NOT EXISTS idx_rides_cities ON public.rides(start_city, end_city, departure_date, status);
-CREATE INDEX IF NOT EXISTS idx_requested_trips_status ON public.requested_trips(status, departure_date);
-CREATE INDEX IF NOT EXISTS idx_chat_ride ON public.chat_messages(ride_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_wallet_user ON public.wallet_transactions(user_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id, is_read);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON public.refresh_tokens(user_id, is_revoked);
-CREATE INDEX IF NOT EXISTS idx_otp_phone ON public.otp_verifications(phone, expires_at);
+-- Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_rides_cities ON rides(start_city, end_city, departure_date, status);
+CREATE INDEX IF NOT EXISTS idx_requested_trips_status ON requested_trips(status, departure_date);
+CREATE INDEX IF NOT EXISTS idx_chat_ride ON chat_messages(ride_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_transactions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id, is_revoked);
+CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_verifications(phone, expires_at);

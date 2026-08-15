@@ -273,8 +273,8 @@ test('TEST 20: Account deletion cleanly revokes tokens and purges active session
   assert.strictEqual(userAccount.activeTokens.length, 0, 'Active tokens are revoked');
 });
 
-// TEST 21: Database migration SQL schema integrity & public qualification
-test('TEST 21: Database migration SQL schema integrity & public qualification', () => {
+// TEST 21: Database migration SQL schema integrity & table structure
+test('TEST 21: Database migration SQL schema integrity & table structure', () => {
   const fs = require('fs');
   const path = require('path');
   const sqlPath = path.join(__dirname, '../src/migrations/init.sql');
@@ -283,25 +283,24 @@ test('TEST 21: Database migration SQL schema integrity & public qualification', 
   // Must not have CREATE EXTENSION that causes code 3F000
   assert.strictEqual(sql.includes('CREATE EXTENSION'), false, 'init.sql must not rely on CREATE EXTENSION');
 
-  // Must ensure public schema and set search_path
-  assert.ok(sql.includes('CREATE SCHEMA IF NOT EXISTS public'), 'init.sql must ensure public schema');
-  assert.ok(sql.includes('SET search_path TO public'), 'init.sql must set search_path to public');
+  // Must not have CREATE SCHEMA IF NOT EXISTS that causes permission denied for unprivileged users
+  assert.strictEqual(sql.includes('CREATE SCHEMA'), false, 'init.sql must not attempt unauthorized CREATE SCHEMA');
 
-  // Must contain all core application tables explicitly in public schema
+  // Must contain all core application tables
   const requiredTables = [
-    'public.users',
-    'public.refresh_tokens',
-    'public.otp_verifications',
-    'public.rides',
-    'public.ride_bookings',
-    'public.requested_trips',
-    'public.wallet_transactions',
-    'public.topup_requests',
-    'public.notifications',
-    'public.chat_messages',
-    'public.admin_activity_logs',
-    'public.support_tickets',
-    'public.app_settings'
+    'users',
+    'refresh_tokens',
+    'otp_verifications',
+    'rides',
+    'ride_bookings',
+    'requested_trips',
+    'wallet_transactions',
+    'topup_requests',
+    'notifications',
+    'chat_messages',
+    'admin_activity_logs',
+    'support_tickets',
+    'app_settings'
   ];
 
   for (const table of requiredTables) {

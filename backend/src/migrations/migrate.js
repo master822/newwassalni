@@ -7,9 +7,22 @@ async function runMigration() {
   try {
     console.log('🔄 Running PostgreSQL database migrations...');
 
-    // Explicitly ensure the public schema exists and set search_path
-    await client.query('CREATE SCHEMA IF NOT EXISTS public;');
-    await client.query('SET search_path TO public;');
+    // Log diagnostic information to help identify environment details safely
+    try {
+      const diagRes = await client.query(`
+        SELECT 
+          current_user AS db_user, 
+          current_database() AS db_name, 
+          current_schema() AS db_schema,
+          current_setting('search_path') AS search_path
+      `);
+      if (diagRes.rows && diagRes.rows.length > 0) {
+        const d = diagRes.rows[0];
+        console.log(`ℹ️ Connected to database: ${d.db_name} as user: ${d.db_user} (schema: ${d.db_schema}, search_path: ${d.search_path})`);
+      }
+    } catch (diagErr) {
+      console.warn('⚠️ Could not fetch diagnostic schema info:', diagErr.message);
+    }
 
     const sqlPath = path.join(__dirname, 'init.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');

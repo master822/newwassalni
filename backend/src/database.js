@@ -24,14 +24,9 @@ function getSslConfig() {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/wassalni',
   ssl: getSslConfig(),
-  options: '-c search_path=public',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
-});
-
-pool.on('connect', (client) => {
-  client.query('SET search_path TO public');
 });
 
 pool.on('error', (err) => {
