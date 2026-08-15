@@ -46,12 +46,13 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Health Check
 app.get('/health', async (req, res) => {
   try {
-    const dbRes = await db.query('SELECT NOW()');
+    const dbRes = await db.query('SELECT NOW() AS now, current_schema() AS schema');
     res.json({
       status: 'HEALTHY',
       service: 'Wassalni Backend API',
       timestamp: new Date().toISOString(),
       database: 'CONNECTED',
+      schema: dbRes.rows[0].schema || 'public',
       serverTime: dbRes.rows[0].now,
     });
   } catch (err) {
@@ -96,10 +97,16 @@ if (process.env.NODE_ENV !== 'test') {
       });
     })
     .catch(err => {
-      console.warn('⚠️ Starting server without automatic migration execution:', err.message);
-      app.listen(PORT, () => {
-        console.log(`🚗 Wassalni API Server running on port ${PORT}`);
-      });
+      console.error('❌ FATAL: Database migration failed during server startup:', err.message || err);
+      if (process.env.NODE_ENV === 'production') {
+        console.error('🛑 Stopping server startup because migrations could not be completed.');
+        process.exit(1);
+      } else {
+        console.warn('⚠️ Starting server without migration in non-production mode:', err.message);
+        app.listen(PORT, () => {
+          console.log(`🚗 Wassalni API Server running in dev fallback mode on port ${PORT}`);
+        });
+      }
     });
 }
 

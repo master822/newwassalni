@@ -2,7 +2,18 @@
 -- Wassalni (وصلني) Production Database Schema - PostgreSQL
 -- ==========================================================
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- 0. Ensure public schema exists and search_path is explicitly set
+CREATE SCHEMA IF NOT EXISTS public;
+SET search_path TO public;
+
+-- Optional: Safely create uuid-ossp extension without failing on constrained cloud databases (e.g. filess.io)
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL;
+END $$;
 
 -- 1. Users Table
 CREATE TABLE IF NOT EXISTS users (
