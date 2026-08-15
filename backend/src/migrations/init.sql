@@ -1,9 +1,10 @@
 -- ==========================================================
--- Wassalni (وصلني) Production Database Schema - PostgreSQL
--- Schema-agnostic, resilient, and idempotent
+-- Wassalni Production PostgreSQL Schema
+-- Explicitly targets the public schema.
 -- ==========================================================
 
--- 1. Users Table
+
+-- Users
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(120) NOT NULL,
@@ -14,10 +15,10 @@ CREATE TABLE IF NOT EXISTS users (
     rating NUMERIC(3, 2) DEFAULT 5.0,
     ride_count INT DEFAULT 0,
     is_verified BOOLEAN DEFAULT TRUE,
-    wallet_points INT DEFAULT 50, -- Starting Bonus: Exactly 50 points
+    wallet_points INT DEFAULT 50,
     is_suspended BOOLEAN DEFAULT FALSE,
     suspend_reason TEXT DEFAULT NULL,
-    role VARCHAR(32) DEFAULT 'USER', -- USER, DRIVER, ADMIN, SUPER_ADMIN
+    role VARCHAR(32) DEFAULT 'USER',
     user_role VARCHAR(32) DEFAULT 'راكب وسائق',
     referral_code VARCHAR(32) UNIQUE NOT NULL,
     fcm_token TEXT DEFAULT NULL,
@@ -25,7 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Refresh Tokens Table (JWT rotation & revocation)
+-- Refresh Tokens
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -35,7 +36,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. OTP Verifications Table (Server-Side Rate Limited & Hashed OTP)
+-- OTP
 CREATE TABLE IF NOT EXISTS otp_verifications (
     id VARCHAR(64) PRIMARY KEY,
     phone VARCHAR(32) NOT NULL,
@@ -46,7 +47,7 @@ CREATE TABLE IF NOT EXISTS otp_verifications (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Rides Table (Published by Drivers)
+-- Rides
 CREATE TABLE IF NOT EXISTS rides (
     id VARCHAR(64) PRIMARY KEY,
     driver_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -70,22 +71,22 @@ CREATE TABLE IF NOT EXISTS rides (
     accept_cash BOOLEAN DEFAULT TRUE,
     accept_wallet BOOLEAN DEFAULT TRUE,
     is_women_only BOOLEAN DEFAULT FALSE,
-    status VARCHAR(32) DEFAULT 'UPCOMING', -- UPCOMING, COMPLETED, CANCELLED
+    status VARCHAR(32) DEFAULT 'UPCOMING',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. Ride Bookings Table (Passengers booking seats)
+-- Ride Bookings
 CREATE TABLE IF NOT EXISTS ride_bookings (
     id VARCHAR(64) PRIMARY KEY,
     ride_id VARCHAR(64) NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
     passenger_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     passenger_name VARCHAR(120) NOT NULL,
     seats_booked INT NOT NULL DEFAULT 1,
-    status VARCHAR(32) DEFAULT 'UPCOMING', -- UPCOMING, COMPLETED, CANCELLED
+    status VARCHAR(32) DEFAULT 'UPCOMING',
     booked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Requested Trips Table (Trip requests posted by passengers)
+-- Requested Trips
 CREATE TABLE IF NOT EXISTS requested_trips (
     id VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -99,18 +100,18 @@ CREATE TABLE IF NOT EXISTS requested_trips (
     men_count INT DEFAULT 1,
     women_count INT DEFAULT 0,
     children_count INT DEFAULT 0,
-    status VARCHAR(32) DEFAULT 'OPEN', -- OPEN, ACCEPTED, CANCELLED
+    status VARCHAR(32) DEFAULT 'OPEN',
     accepted_by_driver_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
     accepted_by_driver_name VARCHAR(120) DEFAULT NULL,
     accepted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. Wallet Transactions Table (Double-entry Ledger)
+-- Wallet Transactions
 CREATE TABLE IF NOT EXISTS wallet_transactions (
     id VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    type VARCHAR(32) NOT NULL, -- WELCOME_BONUS, REFERRAL_REWARD, TOP_UP, TRANSFER, COMMISSION, DEDUCTION, ADMIN_ADJUSTMENT
+    type VARCHAR(32) NOT NULL,
     points INT NOT NULL,
     amount_usd NUMERIC(8, 2) DEFAULT 0.0,
     description TEXT NOT NULL,
@@ -118,7 +119,7 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 8. TopUp Requests Table (Cham Cash receipts)
+-- Topup Requests
 CREATE TABLE IF NOT EXISTS topup_requests (
     id VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -126,25 +127,25 @@ CREATE TABLE IF NOT EXISTS topup_requests (
     package_points INT NOT NULL,
     package_price_usd NUMERIC(8, 2) NOT NULL,
     receipt_image_path TEXT DEFAULT '',
-    status VARCHAR(32) DEFAULT 'PENDING', -- PENDING, APPROVED, REJECTED
+    status VARCHAR(32) DEFAULT 'PENDING',
     rejection_reason TEXT DEFAULT NULL,
     processed_by_admin_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
 );
 
--- 9. Notifications Table
+-- Notifications
 CREATE TABLE IF NOT EXISTS notifications (
     id VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(120) NOT NULL,
     message TEXT NOT NULL,
-    type VARCHAR(32) DEFAULT 'SYSTEM', -- SYSTEM, BOOKING, APPROVAL, REFERRAL, BROADCAST
+    type VARCHAR(32) DEFAULT 'SYSTEM',
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 10. Chat Messages Table
+-- Chat Messages
 CREATE TABLE IF NOT EXISTS chat_messages (
     id VARCHAR(64) PRIMARY KEY,
     ride_id VARCHAR(64) NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
@@ -161,7 +162,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 11. Admin Activity Logs Table
+-- Admin Activity Logs
 CREATE TABLE IF NOT EXISTS admin_activity_logs (
     id VARCHAR(64) PRIMARY KEY,
     admin_id VARCHAR(64) NOT NULL,
@@ -173,7 +174,7 @@ CREATE TABLE IF NOT EXISTS admin_activity_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 12. Support Tickets Table
+-- Support Tickets
 CREATE TABLE IF NOT EXISTS support_tickets (
     id VARCHAR(64) PRIMARY KEY,
     user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
@@ -181,26 +182,31 @@ CREATE TABLE IF NOT EXISTS support_tickets (
     user_email VARCHAR(120) NOT NULL,
     subject VARCHAR(200) NOT NULL,
     message_text TEXT NOT NULL,
-    priority VARCHAR(16) DEFAULT 'MEDIUM', -- HIGH, MEDIUM, LOW
-    status VARCHAR(16) DEFAULT 'OPEN', -- OPEN, RESOLVED, CLOSED
+    priority VARCHAR(16) DEFAULT 'MEDIUM',
+    status VARCHAR(16) DEFAULT 'OPEN',
     admin_reply TEXT DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 13. App Settings Table (Dynamic Remote Configuration)
+-- App Settings
 CREATE TABLE IF NOT EXISTS app_settings (
     setting_key VARCHAR(64) PRIMARY KEY,
     setting_value TEXT NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Idempotent column additions in case tables already exist
-ALTER TABLE requested_trips ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token TEXT DEFAULT NULL;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS suspend_reason TEXT DEFAULT NULL;
+-- Safe column additions
+ALTER TABLE requested_trips
+    ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
 
--- Default Settings Seed
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS fcm_token TEXT DEFAULT NULL;
+
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS suspend_reason TEXT DEFAULT NULL;
+
+-- Default Settings
 INSERT INTO app_settings (setting_key, setting_value) VALUES
     ('app_name', 'وصلني'),
     ('app_tagline', 'نسافر معاً، نوصل بأمان'),
@@ -213,11 +219,24 @@ INSERT INTO app_settings (setting_key, setting_value) VALUES
     ('app_download_url', 'https://wasalni.app/download')
 ON CONFLICT (setting_key) DO NOTHING;
 
--- Performance Indexes
-CREATE INDEX IF NOT EXISTS idx_rides_cities ON rides(start_city, end_city, departure_date, status);
-CREATE INDEX IF NOT EXISTS idx_requested_trips_status ON requested_trips(status, departure_date);
-CREATE INDEX IF NOT EXISTS idx_chat_ride ON chat_messages(ride_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet_transactions(user_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id, is_revoked);
-CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_verifications(phone, expires_at);
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_rides_cities
+    ON rides(start_city, end_city, departure_date, status);
+
+CREATE INDEX IF NOT EXISTS idx_requested_trips_status
+    ON requested_trips(status, departure_date);
+
+CREATE INDEX IF NOT EXISTS idx_chat_ride
+    ON chat_messages(ride_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_user
+    ON wallet_transactions(user_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user
+    ON notifications(user_id, is_read);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user
+    ON refresh_tokens(user_id, is_revoked);
+
+CREATE INDEX IF NOT EXISTS idx_otp_phone
+    ON otp_verifications(phone, expires_at);
