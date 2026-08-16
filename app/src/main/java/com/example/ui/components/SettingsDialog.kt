@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -28,6 +30,10 @@ import com.example.data.model.UserEntity
 import com.example.ui.theme.AppStrings
 import com.example.ui.theme.TrueBlue
 
+import com.example.data.network.ApiClient
+import com.example.data.network.model.SendOtpRequest
+import com.example.data.network.model.VerifyOtpRequest
+import kotlinx.coroutines.launch
 @Composable
 fun SettingsDialog(
     currentUser: UserEntity?,
@@ -39,14 +45,17 @@ fun SettingsDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val api = remember { ApiClient.getService(context) }
+
     var name by remember(currentUser) { mutableStateOf(currentUser?.name ?: "") }
     var phone by remember(currentUser) { mutableStateOf(currentUser?.phone ?: "") }
     var avatarUrl by remember(currentUser) { mutableStateOf(currentUser?.avatarUrl ?: "") }
 
     // OTP State for phone change
     var otpSent by remember { mutableStateOf(false) }
-    var generatedOtp by remember { mutableStateOf("") }
     var enteredOtp by remember { mutableStateOf("") }
+    var verifyingOtp by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -173,44 +182,140 @@ fun SettingsDialog(
                                 if (!otpSent) {
                                     Button(
                                         onClick = {
-                                            val code = (1000..9999).random().toString()
-                                            generatedOtp = code
-                                            otpSent = true
-                                            Toast.makeText(context, "رمز تأكيد OTP للرقم الجديد هو: $code", Toast.LENGTH_LONG).show()
+                                            scope.launch {
+                                                try {
+                                                    val response = api.sendOtp(
+                                                        SendOtpRequest(phone.trim())
+                                                    )
+
+                                                    if (
+                                                        response.isSuccessful &&
+                                                        response.body()?.success == true
+                                                    ) {
+                                                        otpSent = true
+                                                        enteredOtp = ""
+                                                        Toast.makeText(
+                                                            context,
+                                                            response.body()?.message
+                                                                ?: "تم إرسال رمز التحقق إلى رقم الهاتف",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    } else {
+                                                        Toast.makeText(
+                                                            context,
+                                                            response.body()?.error
+                                                                ?: "فشل في إرسال رمز التحقق",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "تعذر إرسال رمز التحقق: ${e.message ?: "خطأ غير معروف"}",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                            }
                                         },
+                                        enabled = !verifyingOtp,
                                         colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.fillMaxWidth().testTag("send_phone_otp_btn")
                                     ) {
-                                        Text("إرسال رمز تأكيد OTP للرقم الجديد", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            "إرسال رمز تأكيد OTP للرقم الجديد",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 } else {
-                                    Text("📱 رمز SMS الافتراضي لتأكيد الرقم: $generatedOtp", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TrueBlue)
+                                    Text(
+                                        "📱 تم إرسال رمز OTP إلى رقم الهاتف الجديد",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TrueBlue
+                                    )
 
                                     OutlinedTextField(
                                         value = enteredOtp,
-                                        onValueChange = { enteredOtp = it },
-                                        label = { Text("رمز OTP المكون من 4 أرقام") },
+                                        onValueChange = {
+                                            if (it.length <= 6 && it.all(Char::isDigit)) {
+                                                enteredOtp = it
+                                            }
+                                        },
+                                        label = { Text("رمز OTP المكون من 6 أرقام") },
                                         singleLine = true,
+                                        keyboardOptions = KeyboardOptions(
+                                            keyboardType = KeyboardType.Number
+                                        ),
                                         shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.fillMaxWidth().testTag("profile_otp_input")
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("profile_otp_input")
                                     )
 
                                     Button(
                                         onClick = {
-                                            if (enteredOtp == generatedOtp || enteredOtp == "1234") {
-                                                onUpdateProfile(name, avatarUrl, phone)
-                                                Toast.makeText(context, "تم تأكيد وتحديث رقم الهاتف بنجاح! تم حذف الرقم القديم.", Toast.LENGTH_SHORT).show()
-                                                otpSent = false
+                                            if (enteredOtp.length != 6) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "أدخل رمز OTP المكون من 6 أرقام",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
                                             } else {
-                                                Toast.makeText(context, "رمز OTP غير صحيح! يرجى إدخال $generatedOtp", Toast.LENGTH_SHORT).show()
+                                                scope.launch {
+                                                    verifyingOtp = true
+                                                    try {
+                                                        val response = api.verifyOtp(
+                                                            VerifyOtpRequest(
+                                                                phone = phone.trim(),
+                                                                otp = enteredOtp.trim()
+                                                            )
+                                                        )
+
+                                                        if (
+                                                            response.isSuccessful &&
+                                                            response.body()?.success == true &&
+                                                            !response.body()?.verifyToken.isNullOrBlank()
+                                                        ) {
+                                                            onUpdateProfile(name, avatarUrl, phone)
+                                                            Toast.makeText(
+                                                                context,
+                                                                "تم تأكيد وتحديث رقم الهاتف بنجاح",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                            otpSent = false
+                                                            enteredOtp = ""
+                                                        } else {
+                                                            Toast.makeText(
+                                                                context,
+                                                                response.body()?.error
+                                                                    ?: "رمز OTP غير صحيح أو منتهي الصلاحية",
+                                                                Toast.LENGTH_LONG
+                                                            ).show()
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "تعذر التحقق من الرمز: ${e.message ?: "خطأ غير معروف"}",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    } finally {
+                                                        verifyingOtp = false
+                                                    }
+                                                }
                                             }
                                         },
+                                        enabled = !verifyingOtp,
                                         colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier.fillMaxWidth().testTag("verify_profile_otp_btn")
                                     ) {
-                                        Text("تأكيد وحفظ الرقم الجديد", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            if (verifyingOtp) "جارٍ التحقق..." else "تأكيد وحفظ الرقم الجديد",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
                             }

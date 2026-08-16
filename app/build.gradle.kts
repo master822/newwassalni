@@ -64,7 +64,7 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      buildConfigField("String", "BASE_URL", "\"https://api.wassalni.sy/\"")
+      buildConfigField("String", "BASE_URL", "\"https://newwassalni.onrender.com/\"")
       val relConfig = signingConfigs.findByName("release")
       if (relConfig != null) {
         signingConfig = relConfig

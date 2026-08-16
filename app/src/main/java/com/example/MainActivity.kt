@@ -391,9 +391,16 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            onRegisterSuccess = { name, email, phone, pass, refCode ->
+                            onRegisterSuccess = { name, email, phone, pass, refCode, verifyToken ->
                                 coroutineScope.launch {
-                                    val result = viewModel.registerUserAccount(name, email, phone, pass, refCode)
+                                    val result = viewModel.registerUserAccount(
+                                        name,
+                                        email,
+                                        phone,
+                                        pass,
+                                        refCode,
+                                        verifyToken
+                                    )
                                     android.widget.Toast.makeText(this@MainActivity, result.second, android.widget.Toast.LENGTH_LONG).show()
                                     if (result.first) {
                                         showAuthDialog = false

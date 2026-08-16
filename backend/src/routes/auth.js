@@ -500,7 +500,7 @@ router.post('/send-otp', async (req, res) => {
     // 0939123456
     // 963939123456
     // +963939123456
-    let normalizedPhone = cleanPhone.replace(/[\\s()-]/g, '');
+    let normalizedPhone = cleanPhone.replace(/[\s()-]/g, '');
 
     if (normalizedPhone.startsWith('+')) {
       normalizedPhone = normalizedPhone.substring(1);
@@ -620,7 +620,27 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ success: false, error: 'رقم الهاتف ورمز OTP مطلوبان' });
     }
 
-    const cleanPhone = phone.trim();
+    // Normalize the phone exactly the same way as /send-otp.
+    // This prevents OTP verification failures caused by:
+    // 09xxxxxxxx vs 9639xxxxxxxx vs +9639xxxxxxxx.
+    let cleanPhone = phone.trim().replace(/[\s()-]/g, '');
+
+    if (cleanPhone.startsWith('+')) {
+      cleanPhone = cleanPhone.substring(1);
+    }
+
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '963' + cleanPhone.substring(1);
+    }
+
+    if (!/^9639\d{8}$/.test(cleanPhone)) {
+      return res.status(400).json({
+        success: false,
+        error: 'يرجى إدخال رقم هاتف سوري صالح',
+        code: 'INVALID_SYRIAN_PHONE',
+      });
+    }
+
     const record = await db.query(
       'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
       [cleanPhone]
@@ -677,7 +697,26 @@ router.post('/reset-password', async (req, res) => {
 
     await client.query('BEGIN');
 
-    const cleanPhone = phone.trim();
+    // Normalize phone exactly like /send-otp and /verify-otp.
+    let cleanPhone = phone.trim().replace(/[\s()-]/g, '');
+
+    if (cleanPhone.startsWith('+')) {
+      cleanPhone = cleanPhone.substring(1);
+    }
+
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '963' + cleanPhone.substring(1);
+    }
+
+    if (!/^9639\d{8}$/.test(cleanPhone)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        error: 'يرجى إدخال رقم هاتف سوري صالح',
+        code: 'INVALID_SYRIAN_PHONE',
+      });
+    }
+
     const otpRes = await client.query(
       'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1 FOR UPDATE',
       [cleanPhone]
@@ -689,6 +728,20 @@ router.post('/reset-password', async (req, res) => {
     }
 
     const otpRecord = otpRes.rows[0];
+
+    const userRes = await client.query(
+      'SELECT id FROM users WHERE phone = $1 LIMIT 1',
+      [cleanPhone]
+    );
+
+    if (userRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        error: 'لا يوجد حساب مرتبط برقم الهاتف هذا',
+      });
+    }
+
     const isMatch = await bcrypt.compare(otp.trim(), otpRecord.otp_hash);
     if (!isMatch) {
       await client.query('ROLLBACK');

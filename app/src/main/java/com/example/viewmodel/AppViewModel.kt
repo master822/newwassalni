@@ -344,9 +344,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         email: String,
         phone: String,
         pass: String,
-        referralCode: String?
+        referralCode: String?,
+        verifyToken: String?
     ): Pair<Boolean, String> {
-        val result = repository.register(name, email, phone, pass, referralCode)
+        val result = repository.register(
+            name,
+            email,
+            phone,
+            pass,
+            referralCode,
+            verifyToken
+        )
         return if (result.isSuccess) {
             val user = result.getOrNull()
             activeUserId.value = user?.id ?: "user_default"
@@ -666,7 +674,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 id = UUID.randomUUID().toString(),
                 userId = userId,
                 title = "🔒 إعادة تعيين كلمة المرور",
-                message = "تمت إعادة تعيين كلمة المرور الخاصة بك إلى (123456) من قبل مدير النظام.",
+                message = "تم طلب إعادة تعيين كلمة المرور الخاصة بحسابك من قبل مدير النظام. يرجى استخدام آلية استعادة كلمة المرور الآمنة.",
                 type = NotificationType.SYSTEM.name
             )
             dao.insertNotification(notif)
