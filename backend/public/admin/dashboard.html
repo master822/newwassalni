@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>وصلني | لوحة التحكم</title>
+  <link rel="stylesheet" href="/admin/assets/admin.css">
+</head>
+<body>
+<div class="admin-shell">
+  <aside class="sidebar">
+    <h2>🚗 وصلني</h2>
+    <div id="adminName" class="muted" style="text-align:right;color:#94a3b8;margin-bottom:18px"></div>
+    <nav class="nav">
+      <button class="active" data-section="overview">نظرة عامة</button>
+      <button data-section="users">المستخدمون</button>
+      <button data-section="rides">الرحلات</button>
+      <button data-section="topups">طلبات الشحن</button>
+    </nav>
+  </aside>
+  <main class="content">
+    <div class="topbar"><div><h1 id="pageTitle">نظرة عامة</h1><div class="muted" id="statusText">متصل</div></div><button class="logout" id="logout">تسجيل الخروج</button></div>
+
+    <section id="overview" class="section active">
+      <div class="grid">
+        <div class="card"><div class="muted">المستخدمون</div><div id="usersCount" class="stat-value">—</div></div>
+        <div class="card"><div class="muted">الرحلات</div><div id="ridesCount" class="stat-value">—</div></div>
+        <div class="card"><div class="muted">طلبات الشحن المعلقة</div><div id="topupsCount" class="stat-value">—</div></div>
+        <div class="card"><div class="muted">صلاحية الحساب</div><div id="roleValue" class="stat-value" style="font-size:20px">—</div></div>
+      </div>
+    </section>
+
+    <section id="users" class="section">
+      <div class="toolbar"><input id="userSearch" placeholder="بحث بالاسم أو البريد أو الهاتف"><button class="action" id="refreshUsers">تحديث</button></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>الاسم</th><th>البريد</th><th>الهاتف</th><th>الدور</th><th>النقاط</th><th>الحالة</th></tr></thead><tbody id="usersBody"></tbody></table></div>
+    </section>
+
+    <section id="rides" class="section">
+      <div class="toolbar"><button class="action" id="refreshRides">تحديث الرحلات</button></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>السائق</th><th>من</th><th>إلى</th><th>التاريخ</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="ridesBody"></tbody></table></div>
+    </section>
+
+    <section id="topups" class="section">
+      <div class="toolbar"><button class="action" id="refreshTopups">تحديث الطلبات</button></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>المستخدم</th><th>النقاط</th><th>السعر</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="topupsBody"></tbody></table></div>
+    </section>
+  </main>
+</div>
+<script src="/admin/assets/dashboard.js" defer></script>
+</body>
+</html>
