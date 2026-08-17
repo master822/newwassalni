@@ -43,27 +43,6 @@ if (process.env.NODE_ENV !== 'test') {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Obscured administrator entry point.
-// Do not expose the conventional /admin or /login paths.
-app.use('/aboahmad', express.static(adminWebRoot, {
-  index: 'login.html',
-  extensions: ['html'],
-  redirect: false,
-  fallthrough: false,
-  setHeaders: (res) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
-  }
-}));
-
-app.use('/admin', (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Not found'
-  });
-});
-
 // Health Check
 app.get('/health', async (req, res) => {
   try {
