@@ -78,17 +78,13 @@ data class SendOtpResponse(
     @Json(name = "success") val success: Boolean,
     @Json(name = "message") val message: String? = null,
     @Json(name = "error") val error: String? = null,
-    @Json(name = "devOtp") val devOtp: String? = null,
-    @Json(name = "otpId") val otpId: String? = null,
-    @Json(name = "phone") val phone: String? = null,
-    @Json(name = "expiresInSeconds") val expiresInSeconds: Int? = null
+    @Json(name = "devOtp") val devOtp: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class VerifyOtpRequest(
     @Json(name = "phone") val phone: String,
-    @Json(name = "otp") val otp: String,
-    @Json(name = "otpId") val otpId: String? = null
+    @Json(name = "otp") val otp: String
 )
 
 @JsonClass(generateAdapter = true)

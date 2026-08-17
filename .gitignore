@@ -22,11 +22,3 @@ backend/.env
 keystore.properties
 debug.keystore
 backend/node_modules/
-
-# Local signing / temporary backups
-.wassalni-signing.env
-*.backup
-*.backup-*
-*.before-*
-*.bak
-*.bak.*
