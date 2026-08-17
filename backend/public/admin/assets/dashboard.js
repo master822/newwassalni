@@ -1,115 +1,56 @@
 (() => {
   const token = sessionStorage.getItem('wassalni_admin_access_token');
   const savedUser = JSON.parse(sessionStorage.getItem('wassalni_admin_user') || 'null');
-  if (!token || !savedUser || !['ADMIN', 'SUPER_ADMIN'].includes(savedUser.role)) {
-    window.location.replace('/admin/login.html');
-    return;
-  }
-
-  const $ = (id) => document.getElementById(id);
-  const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  if (!token || !savedUser || !['ADMIN','SUPER_ADMIN'].includes(savedUser.role)) { window.location.replace('/admin/login.html'); return; }
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   $('adminName').textContent = `${savedUser.name || 'مدير النظام'} — ${savedUser.role}`;
   $('roleValue').textContent = savedUser.role === 'SUPER_ADMIN' ? 'مدير أعلى' : 'مدير';
-
-  async function api(path, options = {}) {
-    const headers = new Headers(options.headers || {});
-    headers.set('Authorization', `Bearer ${token}`);
-    if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-    const response = await fetch(`/api/admin${path}`, {...options, headers});
-    const data = await response.json().catch(() => ({}));
-    if (response.status === 401 || response.status === 403) {
-      sessionStorage.clear();
-      window.location.replace('/admin/login.html');
-      throw new Error(data.error || 'انتهت جلسة الإدارة.');
-    }
-    if (!response.ok || data.success === false) throw new Error(data.error || 'تعذر تنفيذ العملية.');
-    return data;
+  let selectedChat = null;
+  async function api(path, options={}) {
+    const headers = new Headers(options.headers || {}); headers.set('Authorization',`Bearer ${token}`);
+    if (options.body && !headers.has('Content-Type')) headers.set('Content-Type','application/json');
+    const r = await fetch(`/api/admin${path}`,{...options,headers}); const d = await r.json().catch(()=>({}));
+    if (r.status===401||r.status===403){sessionStorage.clear();window.location.replace('/admin/login.html');throw new Error(d.error||'انتهت جلسة الإدارة.');}
+    if(!r.ok||d.success===false) throw new Error(d.error||'تعذر تنفيذ العملية.'); return d;
   }
+  const fail = e => { $('statusText').textContent=e.message||'حدث خطأ'; $('statusText').className='danger'; };
+  const ok = t => { $('statusText').textContent=t||'تمت العملية بنجاح'; $('statusText').className='success'; };
 
-  function showError(err) {
-    $('statusText').textContent = err.message || 'حدث خطأ';
-    $('statusText').className = 'danger';
+  async function loadUsers(){
+    const p=new URLSearchParams(); const s=$('userSearch').value.trim(); if(s)p.set('search',s); if($('userRole').value)p.set('role',$('userRole').value); if($('userSuspended').value)p.set('suspended',$('userSuspended').value);
+    const d=await api(`/users${p.toString()?`?${p}`:''}`), rows=d.data||[]; $('usersCount').textContent=rows.length;
+    $('usersBody').innerHTML=rows.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.phone)}</td><td><span class="badge">${esc(u.role)}</span></td><td>${esc(u.wallet_points)}</td><td>${u.is_suspended?'<span class="danger">موقوف</span>':'<span class="success">نشط</span>'}</td><td><button class="action" data-edit-user="${esc(u.id)}">تعديل</button> <button class="action" data-suspend-user="${esc(u.id)}">${u.is_suspended?'تفعيل':'إيقاف'}</button> <button class="action" data-wallet-user="${esc(u.id)}">رصيد</button>${savedUser.role==='SUPER_ADMIN'?` <button class="action" data-impersonate="${esc(u.id)}">دخول كمستخدم</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="empty">لا توجد نتائج</td></tr>';
   }
+  async function loadRides(){const d=await api('/rides'),rows=d.data||[];$('ridesCount').textContent=rows.length;$('ridesBody').innerHTML=rows.map(r=>`<tr><td>${esc(r.driver_name||r.driver_id)}</td><td>${esc(r.start_city)}</td><td>${esc(r.end_city)}</td><td>${esc(r.departure_date)}</td><td>${esc(r.status)}</td><td>${r.status!=='CANCELLED'?`<button class="action" data-cancel-ride="${esc(r.id)}">إلغاء</button>`:'—'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">لا توجد رحلات</td></tr>';}
+  async function loadRequests(){const d=await api('/requested-trips'),rows=d.data||[];$('requestsBody').innerHTML=rows.map(r=>`<tr><td>${esc(r.id)}</td><td>${esc(JSON.stringify(r))}</td><td>${esc(r.status)}</td><td>${esc(r.created_at)}</td><td><button class="action danger" data-delete-request="${esc(r.id)}">حذف</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">لا توجد طلبات</td></tr>';}
+  async function loadTopups(){const d=await api('/topup-requests?status=PENDING'),rows=d.data||[];$('topupsCount').textContent=rows.length;$('topupsBody').innerHTML=rows.map(t=>`<tr><td>${esc(t.user_name||t.user_id)}</td><td>${esc(t.package_points)}</td><td>$${esc(t.package_price_usd)}</td><td><span class="badge">${esc(t.status)}</span></td><td><button class="action" data-approve="${esc(t.id)}">قبول</button> <button class="action danger" data-reject="${esc(t.id)}">رفض</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">لا توجد طلبات معلقة</td></tr>';}
+  async function loadChats(){const d=await api('/chats'),rows=d.data||[];$('chatsBody').innerHTML=rows.map(c=>`<tr><td>${esc(c.ride_id)}</td><td>${esc(c.start_city)} → ${esc(c.end_city)}</td><td>${esc(c.message_count)}</td><td>${esc(c.last_message_at)}</td><td><button class="action" data-open-chat="${esc(c.ride_id)}">فتح</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">لا توجد محادثات</td></tr>';}
+  async function openChat(id){selectedChat=id;const d=await api(`/chats/${encodeURIComponent(id)}`);$('chatTitle').textContent=`محادثة الرحلة: ${id}`;$('messagesBody').innerHTML=(d.data||[]).map(m=>`<div class="message"><div class="meta">${esc(m.sender_name)} · ${esc(m.timestamp||m.created_at)}</div><div>${esc(m.message)}</div><button class="action danger" data-delete-message="${esc(m.id)}">حذف</button></div>`).join('')||'<div class="empty">لا رسائل</div>';}
+  async function loadSupport(){const d=await api('/support-tickets'),rows=d.data||[];$('supportBody').innerHTML=rows.map(t=>`<tr><td>${esc(t.id)}</td><td>${esc(t.user_id)}</td><td>${esc(t.subject)}</td><td>${esc(t.status)}</td><td>${esc(t.message||'')}</td><td><button class="action" data-ticket="${esc(t.id)}">رد</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty">لا توجد تذاكر</td></tr>';}
+  async function loadSettings(){const d=await api('/settings');const entries=Object.entries(d.data||{});$('settingsForm').innerHTML=entries.map(([k,v])=>`<div class="setting-field"><label>${esc(k)}</label><input data-setting-key="${esc(k)}" value="${esc(v)}"></div>`).join('')||'<div class="empty">لا توجد إعدادات.</div>';}
+  async function loadAudit(){const d=await api('/audit');$('auditBody').innerHTML=(d.activityLogs||[]).map(x=>`<tr><td>${esc(x.admin_name)}</td><td>${esc(x.action_type)}</td><td>${esc(x.details)}</td><td>${esc(x.target_id)}</td><td>${esc(x.created_at)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">لا يوجد سجل</td></tr>';$('walletAuditBody').innerHTML=(d.walletTransactions||[]).map(x=>`<tr><td>${esc(x.user_name)}</td><td>${esc(x.type)}</td><td>${esc(x.points)}</td><td>$${esc(x.amount_usd)}</td><td>${esc(x.description)}</td><td>${esc(x.created_at)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">لا توجد معاملات</td></tr>';}
+  async function overview(){try{await Promise.all([loadUsers(),loadRides(),loadTopups()]);ok('متصل');}catch(e){fail(e);}}
 
-  async function loadUsers() {
-    const search = encodeURIComponent(($('userSearch').value || '').trim());
-    const data = await api(`/users${search ? `?search=${search}` : ''}`);
-    const rows = data.data || [];
-    $('usersCount').textContent = rows.length;
-    $('usersBody').innerHTML = rows.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.phone)}</td><td><span class="badge">${esc(u.role)}</span></td><td>${esc(u.wallet_points)}</td><td>${u.is_suspended ? '<span class="danger">موقوف</span>' : '<span class="success">نشط</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">لا توجد نتائج</td></tr>';
-  }
+  document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',async()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));b.classList.add('active');const s=b.dataset.section;$(s).classList.add('active');$('pageTitle').textContent=b.textContent.trim();try{if(s==='users')await loadUsers();if(s==='rides')await loadRides();if(s==='requests')await loadRequests();if(s==='chats')await loadChats();if(s==='topups')await loadTopups();if(s==='support')await loadSupport();if(s==='settings')await loadSettings();if(s==='audit')await loadAudit();}catch(e){fail(e);}}));
+  $('refreshUsers').onclick=()=>loadUsers().catch(fail); $('refreshRides').onclick=()=>loadRides().catch(fail); $('refreshRequests').onclick=()=>loadRequests().catch(fail); $('refreshChats').onclick=()=>loadChats().catch(fail); $('refreshTopups').onclick=()=>loadTopups().catch(fail); $('refreshSupport').onclick=()=>loadSupport().catch(fail); $('refreshAudit').onclick=()=>loadAudit().catch(fail);
+  $('userSearch').onkeydown=e=>{if(e.key==='Enter')loadUsers().catch(fail)};$('userRole').onchange=()=>loadUsers().catch(fail);$('userSuspended').onchange=()=>loadUsers().catch(fail);
 
-  async function loadRides() {
-    const data = await api('/rides');
-    const rows = data.data || [];
-    $('ridesCount').textContent = rows.length;
-    $('ridesBody').innerHTML = rows.map(r => `<tr><td>${esc(r.driver_name || r.driver_id)}</td><td>${esc(r.start_city)}</td><td>${esc(r.end_city)}</td><td>${esc(r.departure_date)}</td><td>${esc(r.status)}</td><td>${r.status !== 'CANCELLED' ? `<button class="action" data-cancel-ride="${esc(r.id)}">إلغاء</button>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">لا توجد رحلات</td></tr>';
-  }
-
-  async function loadTopups() {
-    const data = await api('/topup-requests?status=PENDING');
-    const rows = data.data || [];
-    $('topupsCount').textContent = rows.length;
-    $('topupsBody').innerHTML = rows.map(t => `<tr><td>${esc(t.user_name || t.user_id)}</td><td>${esc(t.package_points)}</td><td>$${esc(t.package_price_usd)}</td><td><span class="badge">${esc(t.status)}</span></td><td><button class="action" data-approve="${esc(t.id)}">قبول</button> <button class="action danger" data-reject="${esc(t.id)}">رفض</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">لا توجد طلبات معلقة</td></tr>';
-  }
-
-  async function loadOverview() {
-    try {
-      await Promise.all([loadUsers(), loadRides(), loadTopups()]);
-      $('statusText').textContent = 'متصل';
-      $('statusText').className = 'muted';
-    } catch (err) { showError(err); }
-  }
-
-  document.querySelectorAll('.nav button').forEach(button => button.addEventListener('click', async () => {
-    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    button.classList.add('active');
-    const section = button.dataset.section;
-    $(section).classList.add('active');
-    $('pageTitle').textContent = button.textContent;
-    try {
-      if (section === 'users') await loadUsers();
-      if (section === 'rides') await loadRides();
-      if (section === 'topups') await loadTopups();
-    } catch (err) { showError(err); }
-  }));
-
-  $('refreshUsers').addEventListener('click', () => loadUsers().catch(showError));
-  $('refreshRides').addEventListener('click', () => loadRides().catch(showError));
-  $('refreshTopups').addEventListener('click', () => loadTopups().catch(showError));
-  $('userSearch').addEventListener('keydown', e => { if (e.key === 'Enter') loadUsers().catch(showError); });
-
-  $('usersBody').addEventListener('click', () => {});
-  $('ridesBody').addEventListener('click', async (event) => {
-    const id = event.target.dataset.cancelRide;
-    if (!id) return;
-    const reason = prompt('سبب إلغاء الرحلة:') || 'قرار إداري';
-    if (!confirm('هل تريد إلغاء هذه الرحلة؟')) return;
-    try { await api(`/rides/${encodeURIComponent(id)}`, {method:'DELETE', body:JSON.stringify({reason})}); await loadRides(); } catch (err) { showError(err); }
-  });
-
-  $('topupsBody').addEventListener('click', async (event) => {
-    const approveId = event.target.dataset.approve;
-    const rejectId = event.target.dataset.reject;
-    try {
-      if (approveId && confirm('تأكيد قبول طلب الشحن؟')) {
-        await api(`/topup-requests/${encodeURIComponent(approveId)}/approve`, {method:'POST'});
-        await loadTopups();
-      }
-      if (rejectId && confirm('تأكيد رفض طلب الشحن؟')) {
-        const reason = prompt('سبب الرفض:') || 'لم يتم التحقق من الدفع';
-        await api(`/topup-requests/${encodeURIComponent(rejectId)}/reject`, {method:'POST', body:JSON.stringify({reason})});
-        await loadTopups();
-      }
-    } catch (err) { showError(err); }
-  });
-
-  $('logout').addEventListener('click', () => {
-    sessionStorage.removeItem('wassalni_admin_access_token');
-    sessionStorage.removeItem('wassalni_admin_user');
-    window.location.replace('/admin/login.html');
-  });
-
-  loadOverview();
+  $('usersBody').onclick=async e=>{const id=e.target.dataset.editUser||e.target.dataset.suspendUser||e.target.dataset.walletUser||e.target.dataset.impersonate;if(!id)return;try{
+    if(e.target.dataset.editUser){const name=prompt('الاسم الجديد:');if(name===null)return;const email=prompt('البريد الإلكتروني:');const phone=prompt('الهاتف:');const role=prompt('الدور (USER/ADMIN/SUPER_ADMIN):','USER');await api(`/users/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify({name,email,phone,role})});await loadUsers();ok('تم تعديل المستخدم');}
+    else if(e.target.dataset.suspendUser){const reason=prompt('سبب الإيقاف (اتركه فارغًا عند التفعيل):')||'';await api(`/users/${encodeURIComponent(id)}/toggle-suspend`,{method:'POST',body:JSON.stringify({suspendReason:reason})});await loadUsers();ok('تم تحديث حالة المستخدم');}
+    else if(e.target.dataset.walletUser){const points=prompt('النقاط: استخدم رقمًا موجبًا للإضافة وسالبًا للخصم:');if(points===null)return;const reason=prompt('سبب التعديل المالي:');if(!reason)return;await api(`/users/${encodeURIComponent(id)}/adjust-wallet`,{method:'POST',body:JSON.stringify({points:Number(points),reason})});await loadUsers();ok('تم تعديل الرصيد');}
+    else if(e.target.dataset.impersonate){if(!confirm('سيتم إنشاء جلسة مؤقتة لهذا المستخدم. المتابعة؟'))return;const d=await api(`/impersonate/${encodeURIComponent(id)}`,{method:'POST'});sessionStorage.setItem('wassalni_impersonation_token',d.impersonatedToken);alert('تم إنشاء رمز دخول مؤقت للمستخدم. يجب استخدامه فقط لأغراض الدعم والتشخيص.');ok('تم إنشاء جلسة تقمص مؤقتة');}
+  }catch(x){fail(x)}};
+  $('ridesBody').onclick=async e=>{const id=e.target.dataset.cancelRide;if(!id)return;if(!confirm('إلغاء الرحلة؟'))return;try{const reason=prompt('سبب الإلغاء:')||'قرار إداري';await api(`/rides/${encodeURIComponent(id)}`,{method:'DELETE',body:JSON.stringify({reason})});await loadRides();ok('تم إلغاء الرحلة')}catch(x){fail(x)}};
+  $('requestsBody').onclick=async e=>{const id=e.target.dataset.deleteRequest;if(!id)return;if(!confirm('حذف طلب الرحلة نهائيًا؟'))return;try{await api(`/requested-trips/${encodeURIComponent(id)}`,{method:'DELETE'});await loadRequests();ok('تم الحذف')}catch(x){fail(x)}};
+  $('topupsBody').onclick=async e=>{try{const a=e.target.dataset.approve,r=e.target.dataset.reject;if(a&&confirm('قبول طلب الشحن؟')){await api(`/topup-requests/${encodeURIComponent(a)}/approve`,{method:'POST'});await loadTopups();ok('تم قبول الشحن')}if(r&&confirm('رفض طلب الشحن؟')){const reason=prompt('سبب الرفض:')||'لم يتم التحقق من الدفع';await api(`/topup-requests/${encodeURIComponent(r)}/reject`,{method:'POST',body:JSON.stringify({reason})});await loadTopups();ok('تم الرفض')}}catch(x){fail(x)}};
+  $('chatsBody').onclick=e=>{const id=e.target.dataset.openChat;if(id)openChat(id).catch(fail)};
+  $('messagesBody').onclick=async e=>{const id=e.target.dataset.deleteMessage;if(!id||!selectedChat)return;if(!confirm('حذف الرسالة؟'))return;try{await api(`/chats/${encodeURIComponent(selectedChat)}/messages/${encodeURIComponent(id)}`,{method:'DELETE'});await openChat(selectedChat);ok('تم حذف الرسالة')}catch(x){fail(x)}};
+  $('sendAdminMessage').onclick=async()=>{if(!selectedChat)return alert('اختر محادثة أولًا');const message=$('adminMessage').value.trim();if(!message)return;try{await api(`/chats/${encodeURIComponent(selectedChat)}/admin-message`,{method:'POST',body:JSON.stringify({message})});$('adminMessage').value='';await openChat(selectedChat);ok('تم إرسال الرسالة')}catch(x){fail(x)}};
+  $('clearChat').onclick=async()=>{if(!selectedChat||!confirm('مسح جميع رسائل هذه المحادثة؟'))return;try{await api(`/chats/${encodeURIComponent(selectedChat)}/clear`,{method:'POST'});await openChat(selectedChat);ok('تم مسح المحادثة')}catch(x){fail(x)}};
+  $('sendBroadcast').onclick=async()=>{const title=$('broadcastTitle').value.trim(),message=$('broadcastMessage').value.trim();if(!title||!message)return alert('العنوان والرسالة مطلوبان');try{const d=await api('/broadcast',{method:'POST',body:JSON.stringify({title,message,targetAudience:$('broadcastAudience').value})});alert(d.message||'تم الإرسال');$('broadcastTitle').value='';$('broadcastMessage').value='';ok('تم إرسال الإشعار')}catch(x){fail(x)}};
+  $('saveSettings').onclick=async()=>{const body={};document.querySelectorAll('[data-setting-key]').forEach(i=>body[i.dataset.settingKey]=i.value);try{await api('/settings',{method:'PUT',body:JSON.stringify(body)});ok('تم حفظ الإعدادات')}catch(x){fail(x)}};
+  $('supportBody').onclick=async e=>{const id=e.target.dataset.ticket;if(!id)return;const reply=prompt('اكتب رد الإدارة:');if(!reply)return;try{await api(`/support-tickets/${encodeURIComponent(id)}/reply`,{method:'POST',body:JSON.stringify({reply})});await loadSupport();ok('تم الرد على التذكرة')}catch(x){fail(x)}};
+  $('logout').onclick=()=>{sessionStorage.clear();window.location.replace('/admin/login.html')}; overview();
 })();
