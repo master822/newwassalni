@@ -324,7 +324,7 @@ fun AuthDialog(
                             Spacer(modifier = Modifier.height(16.dp))
 
                             Button(
-                                onClick = {
+                                onClick = onRegisterClick@ {
                                     if (fullName.isBlank() || email.isBlank() || phone.isBlank() || password.isBlank()) {
                                         Toast.makeText(
                                             context,
@@ -332,10 +332,38 @@ fun AuthDialog(
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     } else {
+                                        // Normalize Syrian phone number before ANY OTP request.
+                                        // Accepted:
+                                        // 09XXXXXXXX
+                                        // +9639XXXXXXXX
+                                        // 9639XXXXXXXX
+                                        // spaces, parentheses and hyphens are ignored.
+                                        val normalizedPhone = phone.trim()
+                                            .replace(Regex("[\\s()\\-]"), "")
+                                            .let {
+                                                when {
+                                                    it.startsWith("+963") -> "0" + it.substring(4)
+                                                    it.startsWith("963") -> "0" + it.substring(3)
+                                                    else -> it
+                                                }
+                                            }
+
+                                        if (!Regex("^09\\d{8}$").matches(normalizedPhone)) {
+                                            Toast.makeText(
+                                                context,
+                                                "رقم الهاتف السوري غير صالح. أدخل رقمًا يبدأ بـ 09 ويتكون من 10 أرقام.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            return@onRegisterClick
+                                        }
+
+                                        // Keep the canonical phone for OTP, verification and registration.
+                                        phone = normalizedPhone
+
                                         scope.launch {
                                             try {
                                                 val response = api.sendOtp(
-                                                    SendOtpRequest(phone.trim())
+                                                    SendOtpRequest(normalizedPhone)
                                                 )
 
                                                 if (response.isSuccessful && response.body()?.success == true) {

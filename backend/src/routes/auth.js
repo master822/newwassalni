@@ -660,27 +660,88 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
+    /*
+     * IMPORTANT OTP FIX:
+     *
+     * More than one OTP can exist for the same phone when:
+     * - the SMS provider responds slowly,
+     * - the app retries / sends OTP again,
+     * - the first request appears to fail while the SMS is actually queued.
+     *
+     * Previously we selected ONLY the newest OTP. This caused a valid
+     * OTP from the SMS that actually arrived to be rejected if another
+     * OTP had been created afterwards.
+     *
+     * We now check all currently valid, unused OTPs (newest first) and
+     * accept the OTP that actually matches.
+     */
+
     const record = await db.query(
-      'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+      `SELECT *
+       FROM otp_verifications
+       WHERE phone = $1
+         AND is_used = FALSE
+         AND expires_at > NOW()
+         AND attempts < 5
+       ORDER BY created_at DESC`,
       [cleanPhone]
     );
 
     if (record.rows.length === 0) {
-      return res.status(400).json({ success: false, error: 'رمز التحقق غير صالح أو منتهي الصلاحية' });
+      return res.status(400).json({
+        success: false,
+        error: 'رمز التحقق غير صالح أو منتهي الصلاحية'
+      });
     }
 
-    const otpRecord = record.rows[0];
-    if (otpRecord.attempts >= 5) {
-      return res.status(400).json({ success: false, error: 'تم تجاوز عدد المحاولات المسموح بها' });
+    const submittedOtp = otp.trim();
+    let matchedRecord = null;
+
+    for (const otpRecord of record.rows) {
+      const isMatch = await bcrypt.compare(
+        submittedOtp,
+        otpRecord.otp_hash
+      );
+
+      if (isMatch) {
+        matchedRecord = otpRecord;
+        break;
+      }
     }
 
-    const isMatch = await bcrypt.compare(otp.trim(), otpRecord.otp_hash);
-    if (!isMatch) {
-      await db.query('UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1', [otpRecord.id]);
-      return res.status(400).json({ success: false, error: 'رمز التحقق غير صحيح' });
+    if (!matchedRecord) {
+      /*
+       * Count the failed attempt against the newest active OTP.
+       * This preserves the existing brute-force protection.
+       */
+      await db.query(
+        'UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1',
+        [record.rows[0].id]
+      );
+
+      return res.status(400).json({
+        success: false,
+        error: 'رمز التحقق غير صحيح'
+      });
     }
 
-    await db.query('UPDATE otp_verifications SET is_used = TRUE WHERE id = $1', [otpRecord.id]);
+    /*
+     * Mark the matching OTP as used and invalidate every other
+     * active OTP for this phone.
+     */
+    await db.query(
+      'UPDATE otp_verifications SET is_used = TRUE WHERE id = $1',
+      [matchedRecord.id]
+    );
+
+    await db.query(
+      `UPDATE otp_verifications
+       SET is_used = TRUE
+       WHERE phone = $1
+         AND is_used = FALSE
+         AND id <> $2`,
+      [cleanPhone, matchedRecord.id]
+    );
 
     const verifyToken = jwt.sign(
       { phone: cleanPhone, verified: true },
