@@ -5,24 +5,55 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { sendOtpSms } = require('../msgplus');
+
 const {
   JWT_SECRET,
   JWT_REFRESH_SECRET,
   authenticateToken,
 } = require('../middleware/auth');
 
-const ACCESS_TOKEN_EXPIRY = '1h'; // 1 hour access token
+const ACCESS_TOKEN_EXPIRY = '1h';
 const REFRESH_TOKEN_EXPIRY = '30d';
 
 /**
+ * Normalize Syrian phone numbers to ONE canonical format:
+ *
+ * 0939123456
+ * +963939123456
+ * 963939123456
+ *
+ * all become:
+ *
+ * 963939123456
+ */
+function normalizeSyrianPhone(phone) {
+  if (phone === null || phone === undefined) {
+    return null;
+  }
+
+  let value = String(phone).trim().replace(/[\s()-]/g, '');
+
+  if (value.startsWith('+')) {
+    value = value.substring(1);
+  }
+
+  if (value.startsWith('0')) {
+    value = '963' + value.substring(1);
+  }
+
+  if (!/^9639\d{8}$/.test(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+/**
  * 1. Register a new user
- * - Exactly 50 points welcome bonus for the new user
- * - If referral code provided: +50 points to new user, +50 points to referrer
- * - Always creates USER or DRIVER (Never ADMIN or SUPER_ADMIN)
- * - Atomic database transaction
  */
 router.post('/register', async (req, res) => {
   const client = await db.pool.connect();
+
   try {
     const {
       name,
@@ -40,7 +71,29 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Phone verification is mandatory for public registration.
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'كلمة المرور يجب أن لا تقل عن 6 أحرف أو أرقام',
+      });
+    }
+
+    /**
+     * ALWAYS normalize the phone before doing anything else.
+     */
+    const normalizedPhone = normalizeSyrianPhone(phone);
+
+    if (!normalizedPhone) {
+      return res.status(400).json({
+        success: false,
+        error: 'يرجى إدخال رقم هاتف سوري صالح',
+        code: 'INVALID_SYRIAN_PHONE',
+      });
+    }
+
+    /**
+     * Phone verification is mandatory.
+     */
     if (!verifyToken) {
       return res.status(400).json({
         success: false,
@@ -58,7 +111,11 @@ router.post('/register', async (req, res) => {
         throw new Error('Invalid verification token');
       }
 
-      verifiedPhone = decoded.phone.trim();
+      verifiedPhone = normalizeSyrianPhone(decoded.phone);
+
+      if (!verifiedPhone) {
+        throw new Error('Invalid verified phone');
+      }
     } catch (err) {
       return res.status(401).json({
         success: false,
@@ -67,7 +124,11 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    if (verifiedPhone !== phone.trim()) {
+    /**
+     * IMPORTANT:
+     * Compare canonical phone numbers, NOT the raw user input.
+     */
+    if (verifiedPhone !== normalizedPhone) {
       return res.status(400).json({
         success: false,
         error: 'رقم الهاتف لا يطابق الرقم الذي تم التحقق منه',
@@ -75,50 +136,78 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        error: 'كلمة المرور يجب أن لا تقل عن 6 أحرف أو أرقام',
-      });
-    }
-
     await client.query('BEGIN');
 
-    // Check unique email and phone
+    /**
+     * Check email and canonical phone.
+     */
     const existingCheck = await client.query(
       'SELECT id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
-      [email.trim(), phone.trim()]
+      [email.trim(), normalizedPhone]
     );
+
     if (existingCheck.rows.length > 0) {
       await client.query('ROLLBACK');
-      const isEmail = existingCheck.rows.some(r => r.email.toLowerCase() === email.trim().toLowerCase());
+
+      const isEmail = existingCheck.rows.some(
+        r => r.email.toLowerCase() === email.trim().toLowerCase()
+      );
+
       return res.status(409).json({
         success: false,
-        error: isEmail ? 'البريد الإلكتروني مسجل مسبقاً' : 'رقم الهاتف مسجل مسبقاً',
+        error: isEmail
+          ? 'البريد الإلكتروني مسجل مسبقاً'
+          : 'رقم الهاتف مسجل مسبقاً',
       });
     }
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
+
     const userId = `user_${uuidv4().substring(0, 8)}`;
-    const myReferralCode = `WASALNI-${uuidv4().substring(0, 5).toUpperCase()}`;
+    const myReferralCode =
+      `WASALNI-${uuidv4().substring(0, 5).toUpperCase()}`;
 
-    // Exactly 50 points starting bonus
     const startingPoints = 50;
-
-    // Standard public registration is strictly restricted to regular USER role
     const initialRole = 'USER';
 
+    /**
+     * Store ONLY canonical phone format.
+     */
     const insertUserQuery = `
-      INSERT INTO users (id, name, email, phone, password_hash, wallet_points, role, user_role, referral_code)
+      INSERT INTO users (
+        id,
+        name,
+        email,
+        phone,
+        password_hash,
+        wallet_points,
+        role,
+        user_role,
+        referral_code
+      )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, name, email, phone, avatar_url, rating, ride_count, is_verified, wallet_points, role, user_role, referral_code, created_at
+      RETURNING
+        id,
+        name,
+        email,
+        phone,
+        avatar_url,
+        rating,
+        ride_count,
+        is_verified,
+        wallet_points,
+        role,
+        user_role,
+        referral_code,
+        created_at
     `;
+
     const userRes = await client.query(insertUserQuery, [
       userId,
       name.trim(),
       email.trim().toLowerCase(),
-      phone.trim(),
+      normalizedPhone,
       passwordHash,
       startingPoints,
       initialRole,
@@ -128,44 +217,78 @@ router.post('/register', async (req, res) => {
 
     const newUser = userRes.rows[0];
 
-    // Record welcome bonus transaction (+50 pts)
+    /**
+     * Welcome bonus.
+     */
     await client.query(
-      `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status)
-       VALUES ($1, $2, 'WELCOME_BONUS', $3, 0.0, 'هدية الترحيب للتسجيل بـ 50 نقطة مجانية', 'COMPLETED')`,
+      `INSERT INTO wallet_transactions
+       (id, user_id, type, points, amount_usd, description, status)
+       VALUES
+       ($1, $2, 'WELCOME_BONUS', $3, 0.0,
+        'هدية الترحيب للتسجيل بـ 50 نقطة مجانية',
+        'COMPLETED')`,
       [uuidv4(), userId, startingPoints]
     );
 
-    // Welcome Notification
+    /**
+     * Welcome notification.
+     */
     await client.query(
-      `INSERT INTO notifications (id, user_id, title, message, type)
-       VALUES ($1, $2, '🎉 أهلاً بك في وصلني!', 'تم منحك 50 نقطة مجانية لبدء رحلاتك ومشاركتها مع الآخرين.', 'SYSTEM')`,
+      `INSERT INTO notifications
+       (id, user_id, title, message, type)
+       VALUES
+       ($1, $2,
+        '🎉 أهلاً بك في وصلني!',
+        'تم منحك 50 نقطة مجانية لبدء رحلاتك ومشاركتها مع الآخرين.',
+        'SYSTEM')`,
       [uuidv4(), userId]
     );
 
-    // Process Referral Bonus (+50 points to referrer, 50+50 model)
+    /**
+     * Referral bonus.
+     */
     if (referralCode && referralCode.trim()) {
       const cleanRefCode = referralCode.trim();
+
       const referrerRes = await client.query(
-        'SELECT id, name, email, phone, wallet_points FROM users WHERE LOWER(referral_code) = LOWER($1) FOR UPDATE',
+        `SELECT id, name, email, phone, wallet_points
+         FROM users
+         WHERE LOWER(referral_code) = LOWER($1)
+         FOR UPDATE`,
         [cleanRefCode]
       );
 
       if (referrerRes.rows.length > 0) {
         const referrer = referrerRes.rows[0];
-        // Prevent self-referral
-        if (referrer.id !== userId && referrer.email.toLowerCase() !== email.trim().toLowerCase() && referrer.phone !== phone.trim()) {
-          const referralRewardPoints = 50; // Exactly 50 points to referrer
 
-          // Update referrer balance
-          await client.query('UPDATE users SET wallet_points = wallet_points + $1 WHERE id = $2', [
-            referralRewardPoints,
-            referrer.id,
-          ]);
+        const sameEmail =
+          referrer.email.toLowerCase() === email.trim().toLowerCase();
 
-          // Record referrer transaction
+        const referrerPhone =
+          normalizeSyrianPhone(referrer.phone);
+
+        const samePhone =
+          referrerPhone === normalizedPhone;
+
+        if (
+          referrer.id !== userId &&
+          !sameEmail &&
+          !samePhone
+        ) {
+          const referralRewardPoints = 50;
+
           await client.query(
-            `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status)
-             VALUES ($1, $2, 'REFERRAL_BONUS', $3, 0.0, $4, 'COMPLETED')`,
+            `UPDATE users
+             SET wallet_points = wallet_points + $1
+             WHERE id = $2`,
+            [referralRewardPoints, referrer.id]
+          );
+
+          await client.query(
+            `INSERT INTO wallet_transactions
+             (id, user_id, type, points, amount_usd, description, status)
+             VALUES
+             ($1, $2, 'REFERRAL_BONUS', $3, 0.0, $4, 'COMPLETED')`,
             [
               uuidv4(),
               referrer.id,
@@ -174,10 +297,14 @@ router.post('/register', async (req, res) => {
             ]
           );
 
-          // Referrer notification
           await client.query(
-            `INSERT INTO notifications (id, user_id, title, message, type)
-             VALUES ($1, $2, '🎁 كسبت 50 نقطة إحالة!', $3, 'REFERRAL')`,
+            `INSERT INTO notifications
+             (id, user_id, title, message, type)
+             VALUES
+             ($1, $2,
+              '🎁 كسبت 50 نقطة إحالة!',
+              $3,
+              'REFERRAL')`,
             [
               uuidv4(),
               referrer.id,
@@ -188,33 +315,65 @@ router.post('/register', async (req, res) => {
       }
     }
 
-    // Generate JWT Tokens with unique JTI for rotation
+    /**
+     * Access token.
+     */
     const refreshTokenId = uuidv4();
+
     const accessToken = jwt.sign(
-      { userId: newUser.id, email: newUser.email, role: newUser.role },
+      {
+        userId: newUser.id,
+        email: newUser.email,
+        role: newUser.role,
+      },
       JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRY }
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+      }
     );
 
+    /**
+     * Refresh token.
+     */
     const refreshToken = jwt.sign(
-      { userId: newUser.id, email: newUser.email, jti: refreshTokenId },
+      {
+        userId: newUser.id,
+        email: newUser.email,
+        jti: refreshTokenId,
+      },
       JWT_REFRESH_SECRET,
-      { expiresIn: REFRESH_TOKEN_EXPIRY }
+      {
+        expiresIn: REFRESH_TOKEN_EXPIRY,
+      }
     );
 
-    // Store refresh token
     const refreshHash = await bcrypt.hash(refreshToken, 8);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const expiresAt =
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
     await client.query(
-      'INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-      [refreshTokenId, newUser.id, refreshHash, expiresAt]
+      `INSERT INTO refresh_tokens
+       (id, user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        refreshTokenId,
+        newUser.id,
+        refreshHash,
+        expiresAt,
+      ]
     );
 
     await client.query('COMMIT');
 
-    res.status(201).json({
+    console.log(
+      `[REGISTER] User created successfully: ${newUser.id}, phone=${normalizedPhone}`
+    );
+
+    return res.status(201).json({
       success: true,
-      message: 'تم إنشاء الحساب بنجاح وتم منحك 50 نقطة هدية الترحيب!',
+      message:
+        'تم إنشاء الحساب بنجاح وتم منحك 50 نقطة هدية الترحيب!',
       accessToken,
       refreshToken,
       user: {
@@ -233,9 +392,16 @@ router.post('/register', async (req, res) => {
       },
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {}
+
     console.error('Registration error:', err);
-    res.status(500).json({ success: false, error: 'فشل في إنشاء الحساب، يرجى المحاولة لاحقاً' });
+
+    return res.status(500).json({
+      success: false,
+      error: 'فشل في إنشاء الحساب، يرجى المحاولة لاحقاً',
+    });
   } finally {
     client.release();
   }
@@ -243,62 +409,119 @@ router.post('/register', async (req, res) => {
 
 /**
  * 2. User Login
- * - Generic error message on failure
- * - Checks account suspension & revocation
  */
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+
     if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'البريد الإلكتروني وكلمة المرور مطلوبة' });
+      return res.status(400).json({
+        success: false,
+        error: 'البريد الإلكتروني وكلمة المرور مطلوبة',
+      });
     }
 
-    const cleanInput = email.trim().toLowerCase();
-    const result = await db.query(
-      'SELECT * FROM users WHERE LOWER(email) = $1 OR phone = $2',
-      [cleanInput, email.trim()]
-    );
+    const input = email.trim();
+
+    const normalizedPhone = normalizeSyrianPhone(input);
+
+    let result;
+
+    if (normalizedPhone) {
+      result = await db.query(
+        `SELECT *
+         FROM users
+         WHERE LOWER(email) = $1
+            OR phone = $2`,
+        [
+          input.toLowerCase(),
+          normalizedPhone,
+        ]
+      );
+    } else {
+      result = await db.query(
+        `SELECT *
+         FROM users
+         WHERE LOWER(email) = $1`,
+        [input.toLowerCase()]
+      );
+    }
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
+      return res.status(401).json({
+        success: false,
+        error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة',
+      });
     }
 
     const user = result.rows[0];
 
-    // Check account suspension
     if (user.is_suspended) {
       return res.status(403).json({
         success: false,
-        error: `تم تعليق هذا الحساب. السبب: ${user.suspend_reason || 'مخالفة الشروط والأحكام'}`,
+        error: `تم تعليق هذا الحساب. السبب: ${
+          user.suspend_reason ||
+          'مخالفة الشروط والأحكام'
+        }`,
       });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password_hash);
+    const isMatch = await bcrypt.compare(
+      password,
+      user.password_hash
+    );
+
     if (!isMatch) {
-      return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
+      return res.status(401).json({
+        success: false,
+        error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة',
+      });
     }
 
     const refreshTokenId = uuidv4();
+
     const accessToken = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      },
       JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRY }
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+      }
     );
 
     const refreshToken = jwt.sign(
-      { userId: user.id, email: user.email, jti: refreshTokenId },
+      {
+        userId: user.id,
+        email: user.email,
+        jti: refreshTokenId,
+      },
       JWT_REFRESH_SECRET,
-      { expiresIn: REFRESH_TOKEN_EXPIRY }
+      {
+        expiresIn: REFRESH_TOKEN_EXPIRY,
+      }
     );
 
     const refreshHash = await bcrypt.hash(refreshToken, 8);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const expiresAt =
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
     await db.query(
-      'INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-      [refreshTokenId, user.id, refreshHash, expiresAt]
+      `INSERT INTO refresh_tokens
+       (id, user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        refreshTokenId,
+        user.id,
+        refreshHash,
+        expiresAt,
+      ]
     );
 
-    res.json({
+    return res.json({
       success: true,
       accessToken,
       refreshToken,
@@ -319,31 +542,48 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ success: false, error: 'فشل في تسجيل الدخول' });
+
+    return res.status(500).json({
+      success: false,
+      error: 'فشل في تسجيل الدخول',
+    });
   }
 });
 
 /**
- * 3. Refresh Access Token with Token Rotation & Reuse Detection
+ * 3. Refresh Access Token
  */
 router.post('/refresh', async (req, res) => {
   const client = await db.pool.connect();
+
   try {
     const { refreshToken } = req.body;
+
     if (!refreshToken) {
-      return res.status(400).json({ success: false, error: 'Refresh token is required' });
+      return res.status(400).json({
+        success: false,
+        error: 'Refresh token is required',
+      });
     }
 
     let decoded;
+
     try {
-      decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+      decoded = jwt.verify(
+        refreshToken,
+        JWT_REFRESH_SECRET
+      );
     } catch (err) {
-      return res.status(401).json({ success: false, error: 'رمز التحديث غير صالح أو منتهي الصلاحية' });
+      return res.status(401).json({
+        success: false,
+        error: 'رمز التحديث غير صالح أو منتهي الصلاحية',
+      });
     }
 
     await client.query('BEGIN');
 
     const tokenId = decoded.jti;
+
     if (tokenId) {
       const tokenRecordRes = await client.query(
         'SELECT * FROM refresh_tokens WHERE id = $1 FOR UPDATE',
@@ -352,110 +592,192 @@ router.post('/refresh', async (req, res) => {
 
       if (tokenRecordRes.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(401).json({ success: false, error: 'رمز التحديث غير مسجل' });
+
+        return res.status(401).json({
+          success: false,
+          error: 'رمز التحديث غير مسجل',
+        });
       }
 
       const tokenRecord = tokenRecordRes.rows[0];
 
-      // Reuse detection: if token is already revoked, invalidate all sessions for safety
       if (tokenRecord.is_revoked) {
         await client.query(
-          'UPDATE refresh_tokens SET is_revoked = TRUE WHERE user_id = $1',
+          `UPDATE refresh_tokens
+           SET is_revoked = TRUE
+           WHERE user_id = $1`,
           [decoded.userId]
         );
+
         await client.query('COMMIT');
+
         return res.status(401).json({
           success: false,
-          error: 'تم اكتشاف إعادة استخدام رمز ملغى. تم إلغاء جميع الجلسات النشطة لأسباب أمنية.',
+          error:
+            'تم اكتشاف إعادة استخدام رمز ملغى. تم إلغاء جميع الجلسات النشطة لأسباب أمنية.',
         });
       }
 
-      // Mark the current refresh token as revoked/used
       await client.query(
-        'UPDATE refresh_tokens SET is_revoked = TRUE WHERE id = $1',
+        `UPDATE refresh_tokens
+         SET is_revoked = TRUE
+         WHERE id = $1`,
         [tokenId]
       );
     }
 
     const userRes = await client.query(
-      'SELECT id, email, role, is_suspended FROM users WHERE id = $1',
+      `SELECT id, email, role, is_suspended
+       FROM users
+       WHERE id = $1`,
       [decoded.userId]
     );
 
-    if (userRes.rows.length === 0 || userRes.rows[0].is_suspended) {
+    if (
+      userRes.rows.length === 0 ||
+      userRes.rows[0].is_suspended
+    ) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ success: false, error: 'المستخدم غير متاح أو موقوف' });
+
+      return res.status(403).json({
+        success: false,
+        error: 'المستخدم غير متاح أو موقوف',
+      });
     }
 
     const user = userRes.rows[0];
+
     const newAccessToken = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      },
       JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRY }
+      {
+        expiresIn: ACCESS_TOKEN_EXPIRY,
+      }
     );
 
     const newRefreshTokenId = uuidv4();
+
     const newRefreshToken = jwt.sign(
-      { userId: user.id, email: user.email, jti: newRefreshTokenId },
+      {
+        userId: user.id,
+        email: user.email,
+        jti: newRefreshTokenId,
+      },
       JWT_REFRESH_SECRET,
-      { expiresIn: REFRESH_TOKEN_EXPIRY }
+      {
+        expiresIn: REFRESH_TOKEN_EXPIRY,
+      }
     );
 
-    const newRefreshHash = await bcrypt.hash(newRefreshToken, 8);
-    const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const newRefreshHash = await bcrypt.hash(
+      newRefreshToken,
+      8
+    );
+
+    const newExpiresAt =
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
     await client.query(
-      'INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-      [newRefreshTokenId, user.id, newRefreshHash, newExpiresAt]
+      `INSERT INTO refresh_tokens
+       (id, user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        newRefreshTokenId,
+        user.id,
+        newRefreshHash,
+        newExpiresAt,
+      ]
     );
 
     await client.query('COMMIT');
 
-    res.json({
+    return res.json({
       success: true,
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {}
+
     console.error('Refresh token error:', err);
-    res.status(500).json({ success: false, error: 'Failed to refresh token' });
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to refresh token',
+    });
   } finally {
     client.release();
   }
 });
 
 /**
- * 4. User Logout (Revoke all user refresh tokens)
+ * 4. User Logout
  */
 router.post('/logout', authenticateToken, async (req, res) => {
   try {
     await db.query(
-      'UPDATE refresh_tokens SET is_revoked = TRUE WHERE user_id = $1',
+      `UPDATE refresh_tokens
+       SET is_revoked = TRUE
+       WHERE user_id = $1`,
       [req.user.userId]
     );
-    res.json({ success: true, message: 'تم تسجيل الخروج بنجاح' });
+
+    return res.json({
+      success: true,
+      message: 'تم تسجيل الخروج بنجاح',
+    });
   } catch (err) {
     console.error('Logout error:', err);
-    res.status(500).json({ success: false, error: 'Logout failed' });
+
+    return res.status(500).json({
+      success: false,
+      error: 'Logout failed',
+    });
   }
 });
 
 /**
- * 5. Current Authenticated User Profile (GET /api/auth/me)
+ * 5. Current Authenticated User Profile
  */
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, name, email, phone, avatar_url, rating, ride_count, is_verified, wallet_points, is_suspended, role, user_role, referral_code, created_at FROM users WHERE id = $1',
+      `SELECT
+        id,
+        name,
+        email,
+        phone,
+        avatar_url,
+        rating,
+        ride_count,
+        is_verified,
+        wallet_points,
+        is_suspended,
+        role,
+        user_role,
+        referral_code,
+        created_at
+       FROM users
+       WHERE id = $1`,
       [req.user.userId]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
+      return res.status(404).json({
+        success: false,
+        error: 'المستخدم غير موجود',
+      });
     }
 
     const user = result.rows[0];
-    res.json({
+
+    return res.json({
       success: true,
       user: {
         id: user.id,
@@ -470,47 +792,31 @@ router.get('/me', authenticateToken, async (req, res) => {
         role: user.role,
         userRole: user.user_role,
         referralCode: user.referral_code,
-        isImpersonating: req.user.isImpersonating || false,
+        isImpersonating:
+          req.user.isImpersonating || false,
       },
     });
   } catch (err) {
     console.error('Get me error:', err);
-    res.status(500).json({ success: false, error: 'Failed to fetch user' });
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user',
+    });
   }
 });
 
 /**
- * 6. Send Server-Side OTP for Phone Verification
+ * 6. Send Server-Side OTP
  */
 router.post('/send-otp', async (req, res) => {
   try {
     const { phone } = req.body;
 
-    if (!phone || phone.trim().length < 8) {
-      return res.status(400).json({
-        success: false,
-        error: 'رقم الهاتف غير صالح',
-      });
-    }
+    const normalizedPhone =
+      normalizeSyrianPhone(phone);
 
-    const cleanPhone = phone.trim();
-
-    // Only allow Syrian numbers for the current MsgPlus configuration.
-    // Accepted examples:
-    // 0939123456
-    // 963939123456
-    // +963939123456
-    let normalizedPhone = cleanPhone.replace(/[\s()-]/g, '');
-
-    if (normalizedPhone.startsWith('+')) {
-      normalizedPhone = normalizedPhone.substring(1);
-    }
-
-    if (normalizedPhone.startsWith('0')) {
-      normalizedPhone = '963' + normalizedPhone.substring(1);
-    }
-
-    if (!/^9639\d{8}$/.test(normalizedPhone)) {
+    if (!normalizedPhone) {
       return res.status(400).json({
         success: false,
         error: 'يرجى إدخال رقم هاتف سوري صالح',
@@ -518,41 +824,58 @@ router.post('/send-otp', async (req, res) => {
       });
     }
 
-    // Maximum 5 OTP requests per phone every 10 minutes.
+    /**
+     * Maximum 5 OTP requests per phone
+     * every 10 minutes.
+     */
     const rateCheck = await db.query(
-      "SELECT count(*) FROM otp_verifications WHERE phone = $1 AND created_at > NOW() - INTERVAL '10 minutes'",
+      `SELECT count(*)
+       FROM otp_verifications
+       WHERE phone = $1
+         AND created_at >
+             NOW() - INTERVAL '10 minutes'`,
       [normalizedPhone]
     );
 
-    if (parseInt(rateCheck.rows[0].count, 10) >= 5) {
+    if (
+      parseInt(rateCheck.rows[0].count, 10) >= 5
+    ) {
       return res.status(429).json({
         success: false,
-        error: 'تم تجاوز الحد المسموح لطلبات التحقق. يرجى الانتظار 10 دقائق.',
+        error:
+          'تم تجاوز الحد المسموح لطلبات التحقق. يرجى الانتظار 10 دقائق.',
         code: 'OTP_RATE_LIMIT',
       });
     }
 
-    // Generate 6-digit OTP.
-    const generatedOtp = Math.floor(
-      100000 + Math.random() * 900000
-    ).toString();
+    /**
+     * Generate 6-digit OTP.
+     */
+    const generatedOtp =
+      Math.floor(
+        100000 + Math.random() * 900000
+      ).toString();
 
-    const otpHash = await bcrypt.hash(generatedOtp, 8);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const otpHash =
+      await bcrypt.hash(generatedOtp, 8);
+
+    const expiresAt =
+      new Date(Date.now() + 5 * 60 * 1000);
+
+    const otpId = uuidv4();
 
     await db.query(
       `INSERT INTO otp_verifications
        (id, phone, otp_hash, expires_at)
        VALUES ($1, $2, $3, $4)`,
       [
-        uuidv4(),
+        otpId,
         normalizedPhone,
         otpHash,
         expiresAt,
       ]
     );
 
-    // Send the OTP through MsgPlus.
     let smsResult;
 
     try {
@@ -561,49 +884,54 @@ router.post('/send-otp', async (req, res) => {
         generatedOtp
       );
     } catch (smsError) {
-      console.error('MsgPlus OTP send error:', {
-        message: smsError.message,
-        status: smsError.status,
-        data: smsError.data,
-      });
+      console.error(
+        'MsgPlus OTP send error:',
+        {
+          message: smsError.message,
+          status: smsError.status,
+          data: smsError.data,
+        }
+      );
 
-      // Remove the OTP because it was not successfully queued.
       await db.query(
         `DELETE FROM otp_verifications
-         WHERE phone = $1
-           AND is_used = FALSE
-           AND otp_hash = $2`,
-        [normalizedPhone, otpHash]
+         WHERE id = $1`,
+        [otpId]
       );
 
       return res.status(502).json({
         success: false,
-        error: 'تعذر إرسال رمز التحقق عبر خدمة الرسائل',
+        error:
+          'تعذر إرسال رمز التحقق عبر خدمة الرسائل',
         code: 'SMS_SEND_FAILED',
       });
     }
 
+    const smsLogId =
+      smsResult?.data?.sms_log_id ||
+      smsResult?.sms_log_id ||
+      null;
+
     console.log(
-      `[OTP] MsgPlus queued OTP for ${normalizedPhone}. sms_log_id=${smsResult?.data?.sms_log_id || smsResult?.sms_log_id || 'unknown'}`
+      `[OTP] MsgPlus queued OTP for ${normalizedPhone}. sms_log_id=${smsLogId}`
     );
 
-    res.json({
+    return res.json({
       success: true,
-      message: 'تم إرسال رمز التحقق إلى هاتفك عبر SMS',
+      message:
+        'تم إرسال رمز التحقق إلى هاتفك عبر SMS',
+      otpId,
       expiresInSeconds: 300,
       phone: normalizedPhone,
       sms: {
         queued: true,
-        sms_log_id:
-          smsResult?.data?.sms_log_id ||
-          smsResult?.sms_log_id ||
-          null,
+        sms_log_id: smsLogId,
       },
     });
   } catch (err) {
     console.error('Send OTP error:', err);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'فشل في إرسال رمز التحقق',
     });
@@ -615,25 +943,30 @@ router.post('/send-otp', async (req, res) => {
  */
 router.post('/verify-otp', async (req, res) => {
   try {
-    const { phone, otp } = req.body;
-    if (!phone || !otp) {
-      return res.status(400).json({ success: false, error: 'رقم الهاتف ورمز OTP مطلوبان' });
+    const { phone, otp, otpId } = req.body;
+
+    if (!phone || !otp || !otpId) {
+      return res.status(400).json({
+        success: false,
+        error: 'رقم الهاتف ورمز OTP ومعرف طلب OTP مطلوبة',
+        code: 'OTP_ID_REQUIRED',
+      });
     }
 
-    // Normalize the phone exactly the same way as /send-otp.
-    // This prevents OTP verification failures caused by:
-    // 09xxxxxxxx vs 9639xxxxxxxx vs +9639xxxxxxxx.
-    let cleanPhone = phone.trim().replace(/[\s()-]/g, '');
+    const cleanOtpId = String(otpId).trim();
 
-    if (cleanPhone.startsWith('+')) {
-      cleanPhone = cleanPhone.substring(1);
+    if (!cleanOtpId) {
+      return res.status(400).json({
+        success: false,
+        error: 'معرف طلب OTP غير صالح',
+        code: 'INVALID_OTP_ID',
+      });
     }
 
-    if (cleanPhone.startsWith('0')) {
-      cleanPhone = '963' + cleanPhone.substring(1);
-    }
+    const normalizedPhone =
+      normalizeSyrianPhone(phone);
 
-    if (!/^9639\d{8}$/.test(cleanPhone)) {
+    if (!normalizedPhone) {
       return res.status(400).json({
         success: false,
         error: 'يرجى إدخال رقم هاتف سوري صالح',
@@ -641,42 +974,123 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
+    const cleanOtp = String(otp).trim();
+
+    if (!/^\d{6}$/.test(cleanOtp)) {
+      return res.status(400).json({
+        success: false,
+        error: 'رمز التحقق يجب أن يتكون من 6 أرقام',
+        code: 'INVALID_OTP_FORMAT',
+      });
+    }
+
+    /**
+     * IMPORTANT:
+     * Verify the exact OTP request identified by otpId.
+     *
+     * Do NOT select the newest OTP for the phone.
+     * Multiple OTP requests may exist for the same phone and
+     * an SMS may arrive later than another OTP request.
+     */
     const record = await db.query(
-      'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
-      [cleanPhone]
+      `SELECT *
+       FROM otp_verifications
+       WHERE id = $1
+         AND phone = $2
+         AND is_used = FALSE
+         AND expires_at > NOW()
+       LIMIT 1`,
+      [cleanOtpId, normalizedPhone]
     );
 
     if (record.rows.length === 0) {
-      return res.status(400).json({ success: false, error: 'رمز التحقق غير صالح أو منتهي الصلاحية' });
+      return res.status(400).json({
+        success: false,
+        error:
+          'رمز التحقق غير صالح أو منتهي الصلاحية أو لا يطابق طلب OTP',
+        code: 'OTP_NOT_FOUND_OR_EXPIRED',
+      });
     }
 
     const otpRecord = record.rows[0];
-    if (otpRecord.attempts >= 5) {
-      return res.status(400).json({ success: false, error: 'تم تجاوز عدد المحاولات المسموح بها' });
+
+    if (
+      Number(otpRecord.attempts || 0) >= 5
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'تم تجاوز عدد المحاولات المسموح بها',
+        code: 'OTP_ATTEMPTS_EXCEEDED',
+      });
     }
 
-    const isMatch = await bcrypt.compare(otp.trim(), otpRecord.otp_hash);
+    const isMatch =
+      await bcrypt.compare(
+        cleanOtp,
+        otpRecord.otp_hash
+      );
+
     if (!isMatch) {
-      await db.query('UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1', [otpRecord.id]);
-      return res.status(400).json({ success: false, error: 'رمز التحقق غير صحيح' });
+      await db.query(
+        `UPDATE otp_verifications
+         SET attempts = attempts + 1
+         WHERE id = $1`,
+        [otpRecord.id]
+      );
+
+      return res.status(400).json({
+        success: false,
+        error: 'رمز التحقق غير صحيح',
+        code: 'INVALID_OTP',
+      });
     }
 
-    await db.query('UPDATE otp_verifications SET is_used = TRUE WHERE id = $1', [otpRecord.id]);
-
-    const verifyToken = jwt.sign(
-      { phone: cleanPhone, verified: true },
-      JWT_SECRET,
-      { expiresIn: '15m' }
+    /**
+     * Mark OTP as used.
+     */
+    await db.query(
+      `UPDATE otp_verifications
+       SET is_used = TRUE
+       WHERE id = $1`,
+      [otpRecord.id]
     );
 
-    res.json({
+    /**
+     * IMPORTANT:
+     * JWT contains the SAME canonical phone
+     * used everywhere else.
+     */
+    const verifyToken = jwt.sign(
+      {
+        phone: normalizedPhone,
+        verified: true,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: '15m',
+      }
+    );
+
+    console.log(
+      `[OTP] Phone verified successfully: ${normalizedPhone}`
+    );
+
+    return res.json({
       success: true,
-      message: 'تم التحقق من رقم الهاتف بنجاح',
+      message:
+        'تم التحقق من رقم الهاتف بنجاح',
       verifyToken,
+      phone: normalizedPhone,
+      expiresInSeconds: 900,
     });
   } catch (err) {
     console.error('Verify OTP error:', err);
-    res.status(500).json({ success: false, error: 'فشل التحقق من الرمز' });
+
+    return res.status(500).json({
+      success: false,
+      error: 'فشل التحقق من الرمز',
+    });
   }
 });
 
@@ -685,31 +1099,33 @@ router.post('/verify-otp', async (req, res) => {
  */
 router.post('/reset-password', async (req, res) => {
   const client = await db.pool.connect();
+
   try {
-    const { phone, otp, newPassword } = req.body;
+    const {
+      phone,
+      otp,
+      newPassword,
+    } = req.body;
+
     if (!phone || !otp || !newPassword) {
-      return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة' });
+      return res.status(400).json({
+        success: false,
+        error: 'جميع الحقول مطلوبة',
+      });
     }
 
     if (newPassword.length < 6) {
-      return res.status(400).json({ success: false, error: 'كلمة المرور يجب أن لا تقل عن 6 خانات' });
+      return res.status(400).json({
+        success: false,
+        error:
+          'كلمة المرور يجب أن لا تقل عن 6 خانات',
+      });
     }
 
-    await client.query('BEGIN');
+    const normalizedPhone =
+      normalizeSyrianPhone(phone);
 
-    // Normalize phone exactly like /send-otp and /verify-otp.
-    let cleanPhone = phone.trim().replace(/[\s()-]/g, '');
-
-    if (cleanPhone.startsWith('+')) {
-      cleanPhone = cleanPhone.substring(1);
-    }
-
-    if (cleanPhone.startsWith('0')) {
-      cleanPhone = '963' + cleanPhone.substring(1);
-    }
-
-    if (!/^9639\d{8}$/.test(cleanPhone)) {
-      await client.query('ROLLBACK');
+    if (!normalizedPhone) {
       return res.status(400).json({
         success: false,
         error: 'يرجى إدخال رقم هاتف سوري صالح',
@@ -717,61 +1133,168 @@ router.post('/reset-password', async (req, res) => {
       });
     }
 
+    const cleanOtp = String(otp).trim();
+
+    if (!/^\d{6}$/.test(cleanOtp)) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'رمز التحقق يجب أن يتكون من 6 أرقام',
+        code: 'INVALID_OTP_FORMAT',
+      });
+    }
+
+    await client.query('BEGIN');
+
     const otpRes = await client.query(
-      'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1 FOR UPDATE',
-      [cleanPhone]
+      `SELECT *
+       FROM otp_verifications
+       WHERE phone = $1
+         AND is_used = FALSE
+         AND expires_at > NOW()
+       ORDER BY created_at DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [normalizedPhone]
     );
 
     if (otpRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, error: 'رمز التحقق منتهي الصلاحية أو غير موجود' });
+
+      return res.status(400).json({
+        success: false,
+        error:
+          'رمز التحقق منتهي الصلاحية أو غير موجود',
+        code: 'OTP_NOT_FOUND_OR_EXPIRED',
+      });
     }
 
     const otpRecord = otpRes.rows[0];
 
+    if (
+      Number(otpRecord.attempts || 0) >= 5
+    ) {
+      await client.query('ROLLBACK');
+
+      return res.status(400).json({
+        success: false,
+        error:
+          'تم تجاوز عدد المحاولات المسموح بها',
+        code: 'OTP_ATTEMPTS_EXCEEDED',
+      });
+    }
+
     const userRes = await client.query(
-      'SELECT id FROM users WHERE phone = $1 LIMIT 1',
-      [cleanPhone]
+      `SELECT id
+       FROM users
+       WHERE phone = $1
+       LIMIT 1`,
+      [normalizedPhone]
     );
 
     if (userRes.rows.length === 0) {
       await client.query('ROLLBACK');
+
       return res.status(404).json({
         success: false,
-        error: 'لا يوجد حساب مرتبط برقم الهاتف هذا',
+        error:
+          'لا يوجد حساب مرتبط برقم الهاتف هذا',
       });
     }
 
-    const isMatch = await bcrypt.compare(otp.trim(), otpRecord.otp_hash);
+    const isMatch =
+      await bcrypt.compare(
+        cleanOtp,
+        otpRecord.otp_hash
+      );
+
     if (!isMatch) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, error: 'رمز التحقق غير صحيح' });
+      await client.query(
+        `UPDATE otp_verifications
+         SET attempts = attempts + 1
+         WHERE id = $1`,
+        [otpRecord.id]
+      );
+
+      await client.query('COMMIT');
+
+      return res.status(400).json({
+        success: false,
+        error: 'رمز التحقق غير صحيح',
+        code: 'INVALID_OTP',
+      });
     }
 
-    await client.query('UPDATE otp_verifications SET is_used = TRUE WHERE id = $1', [otpRecord.id]);
-
-    const salt = await bcrypt.genSalt(10);
-    const newHash = await bcrypt.hash(newPassword, salt);
-
-    const userUpdate = await client.query(
-      'UPDATE users SET password_hash = $1 WHERE phone = $2 RETURNING id, name, email',
-      [newHash, cleanPhone]
+    await client.query(
+      `UPDATE otp_verifications
+       SET is_used = TRUE
+       WHERE id = $1`,
+      [otpRecord.id]
     );
+
+    const salt =
+      await bcrypt.genSalt(10);
+
+    const newHash =
+      await bcrypt.hash(
+        newPassword,
+        salt
+      );
+
+    const userUpdate =
+      await client.query(
+        `UPDATE users
+         SET password_hash = $1
+         WHERE phone = $2
+         RETURNING id, name, email`,
+        [
+          newHash,
+          normalizedPhone,
+        ]
+      );
 
     if (userUpdate.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, error: 'لا يوجد حساب مسجل بهذا الرقم' });
+
+      return res.status(404).json({
+        success: false,
+        error:
+          'لا يوجد حساب مسجل بهذا الرقم',
+      });
     }
 
-    // Invalidate all active sessions for security
-    await client.query('UPDATE refresh_tokens SET is_revoked = TRUE WHERE user_id = $1', [userUpdate.rows[0].id]);
+    /**
+     * Invalidate all active sessions.
+     */
+    await client.query(
+      `UPDATE refresh_tokens
+       SET is_revoked = TRUE
+       WHERE user_id = $1`,
+      [userUpdate.rows[0].id]
+    );
 
     await client.query('COMMIT');
-    res.json({ success: true, message: 'تمت إعادة تعيين كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول.' });
+
+    return res.json({
+      success: true,
+      message:
+        'تمت إعادة تعيين كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول.',
+    });
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Reset password error:', err);
-    res.status(500).json({ success: false, error: 'فشل في إعادة تعيين كلمة المرور' });
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {}
+
+    console.error(
+      'Reset password error:',
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      error:
+        'فشل في إعادة تعيين كلمة المرور',
+    });
   } finally {
     client.release();
   }

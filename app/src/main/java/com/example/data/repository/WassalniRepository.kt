@@ -138,9 +138,20 @@ class WassalniRepository(
         }
     }
 
-    suspend fun verifyOtp(phone: String, otp: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun verifyOtp(
+        phone: String,
+        otp: String,
+        otpId: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val res = api.verifyOtp(VerifyOtpRequest(phone.trim(), otp.trim()))
+            val res = api.verifyOtp(
+                VerifyOtpRequest(
+                    phone = phone.trim(),
+                    otp = otp.trim(),
+                    otpId = otpId?.trim()?.ifBlank { null }
+                )
+            )
+
             if (res.isSuccessful && res.body()?.success == true) {
                 Result.success(res.body()?.verifyToken ?: "")
             } else {

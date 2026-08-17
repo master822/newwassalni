@@ -25,7 +25,7 @@ app.use(helmet());
 const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-  : (isProduction ? ['https://api.wassalni.sy', 'https://wassalni.sy'] : '*');
+  : (isProduction ? ['https://newwassalni-hm49.onrender.com', 'https://api.wassalni.sy', 'https://wassalni.sy'] : '*');
 
 app.use(cors({
   origin: (origin, callback) => {

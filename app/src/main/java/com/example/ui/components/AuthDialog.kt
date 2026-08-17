@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,17 +58,33 @@ fun AuthDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val api = remember { ApiClient.getService(context) }
-    var currentMode by remember { mutableStateOf(AuthMode.LOGIN) }
+    /*
+     * IMPORTANT:
+     * rememberSaveable preserves authentication/register state when
+     * Android recreates the Activity, for example after screen rotation.
+     *
+     * Without this, AuthDialog always returns to LOGIN because the
+     * default AuthMode is LOGIN.
+     */
+    var currentMode by rememberSaveable { mutableStateOf(AuthMode.LOGIN) }
 
-    // Form fields
-    var emailOrPhone by remember { mutableStateOf("") }
-    var fullName by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var referralCodeInput by remember { mutableStateOf("") }
-    var otpCode by remember { mutableStateOf("") }
-    var newPassword by remember { mutableStateOf("") }
+    // Form fields - preserved across configuration changes.
+    var emailOrPhone by rememberSaveable { mutableStateOf("") }
+    var fullName by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
+    var phone by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var referralCodeInput by rememberSaveable { mutableStateOf("") }
+    var otpCode by rememberSaveable { mutableStateOf("") }
+
+    /*
+     * Keeps the exact OTP request associated with the current
+     * verification screen. This prevents different OTP requests
+     * from being mixed together.
+     */
+    var otpId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    var newPassword by rememberSaveable { mutableStateOf("") }
 
     Dialog(onDismissRequest = { if (!isMandatory && isLoggedIn) onDismiss() }) {
         Surface(
@@ -339,8 +356,27 @@ fun AuthDialog(
                                                 )
 
                                                 if (response.isSuccessful && response.body()?.success == true) {
-                                                    otpCode = ""
-                                                    currentMode = AuthMode.PHONE_OTP
+                                                    val returnedOtpId = response.body()?.otpId
+
+                                                    /*
+                                                     * The server MUST return the identifier of
+                                                     * the exact OTP request that generated the SMS.
+                                                     *
+                                                     * Without this identifier we cannot safely
+                                                     * associate the entered code with the SMS
+                                                     * request that produced it.
+                                                     */
+                                                    if (returnedOtpId.isNullOrBlank()) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "الخادم أرسل نجاحاً بدون معرف OTP. لن يتم متابعة التحقق لحماية الحساب.",
+                                                            Toast.LENGTH_LONG
+                                                        ).show()
+                                                    } else {
+                                                        otpCode = ""
+                                                        otpId = returnedOtpId.trim()
+                                                        currentMode = AuthMode.PHONE_OTP
+                                                    }
 
                                                     Toast.makeText(
                                                         context,
@@ -433,10 +469,22 @@ fun AuthDialog(
                                     } else {
                                         scope.launch {
                                             try {
+                                                val requestOtpId = otpId?.trim()
+
+                                                if (requestOtpId.isNullOrBlank()) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "معرف OTP غير موجود. أعد طلب رمز التحقق.",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                    return@launch
+                                                }
+
                                                 val response = api.verifyOtp(
                                                     VerifyOtpRequest(
                                                         phone = phone.trim(),
-                                                        otp = otpCode.trim()
+                                                        otp = otpCode.trim(),
+                                                        otpId = requestOtpId
                                                     )
                                                 )
 
@@ -523,6 +571,12 @@ fun AuthDialog(
                                                 response.body()?.success == true
                                             ) {
                                                 otpCode = ""
+
+                                                /*
+                                                 * Replace the previous OTP request ID
+                                                 * with the new one.
+                                                 */
+                                                otpId = response.body()?.otpId
 
                                                 Toast.makeText(
                                                     context,

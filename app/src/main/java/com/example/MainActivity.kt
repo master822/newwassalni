@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,7 +72,11 @@ class MainActivity : ComponentActivity() {
             val shamCashAccount by viewModel.shamCashAccount.collectAsStateWithLifecycle()
             val appDownloadUrl by viewModel.appDownloadUrl.collectAsStateWithLifecycle()
             val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
-            var showAuthDialog by remember { mutableStateOf(false) }
+            /*
+             * Preserve the authentication dialog itself across
+             * Activity recreation caused by screen rotation.
+             */
+            var showAuthDialog by rememberSaveable { mutableStateOf(false) }
 
             val searchFrom by viewModel.searchFromCity.collectAsStateWithLifecycle()
             val searchTo by viewModel.searchToCity.collectAsStateWithLifecycle()
