@@ -71,11 +71,11 @@ router.get('/users', async (req, res) => {
 });
 
 /**
- * 2. Edit User details (مع التحديث التلقائي للنقاط وتوليد معاملة مالية)
+ * 2. Edit User details (شامل تعديل البيانات والنقاط وتوليد معاملة مالية تلقائياً)
  */
 router.put('/users/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, email, phone, role, isVerified, userRole, walletPoints, wallet_points } = req.body;
+    const { name, email, phone, role, isVerified, userRole, walletPoints, wallet_points, points } = req.body;
 
     const client = await db.getClient();
 
@@ -89,8 +89,10 @@ router.put('/users/:id', async (req, res) => {
         }
         const currentWalletPoints = parseInt(oldUserRes.rows[0].wallet_points, 10) || 0;
 
-        const requestedPoints = walletPoints !== undefined ? walletPoints : wallet_points;
-        if (requestedPoints !== undefined && requestedPoints !== null) {
+        // دعم جميع الاحتمالات الممكنة لإرسال النقاط من الواجهة الأمامية
+        const requestedPoints = walletPoints !== undefined ? walletPoints : (wallet_points !== undefined ? wallet_points : points);
+
+        if (requestedPoints !== undefined && requestedPoints !== null && requestedPoints !== '') {
             const newTargetPoints = parseInt(requestedPoints, 10);
 
             if (!isNaN(newTargetPoints) && newTargetPoints !== currentWalletPoints) {
@@ -112,7 +114,17 @@ router.put('/users/:id', async (req, res) => {
                         type,
                         pointsToAdjust,
                         pointsToAdjust / 10.0,
-                        'تعديل إداري تلقائي عبر تحديث الملف الشخصي'
+                        'تعديل إداري مباشر عبر نافذة تعديل المستخدم'
+                    ]
+                );
+
+                await client.query(
+                    `INSERT INTO notifications (id, user_id, title, message, type)
+           VALUES ($1, $2, 'تحديث رصيد المحفظة', $3, 'SYSTEM')`,
+                    [
+                        uuidv4(),
+                        id,
+                        `تم تعديل رصيد محفظتك بواسطة الإدارة ليصبح ${newTargetPoints} نقطة.`
                     ]
                 );
             }
@@ -159,7 +171,7 @@ router.put('/users/:id', async (req, res) => {
 });
 
 /**
- * مسارات الإشعارات التابعة للوحة التحكم (الحذف والتعديل كمقروءة لتختفي عند الدخول)
+ * إدارة إشعارات لوحة التحكم (حذف وتحديد كمقروءة لتختفي تماماً وتعمل بسلاسة)
  */
 router.delete('/notifications/:id', async (req, res) => {
     const { id } = req.params;
@@ -167,7 +179,7 @@ router.delete('/notifications/:id', async (req, res) => {
 
     try {
         const deleteRes = await db.query(
-            'DELETE FROM notifications WHERE id = $1 AND user_id = $2',
+            'DELETE FROM notifications WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)',
             [id, userId]
         );
 
@@ -199,7 +211,7 @@ router.put('/notifications/mark-read', async (req, res) => {
 });
 
 /**
- * 3. Toggle User Suspension
+ * 3. Toggle User Suspension (تجميد/تفعيل الحسابات)
  */
 router.post('/users/:id/toggle-suspend', async (req, res) => {
     try {
@@ -246,7 +258,7 @@ router.post('/users/:id/toggle-suspend', async (req, res) => {
 });
 
 /**
- * 4. Adjust User Wallet Points (Strict Audit & Transaction)
+ * 4. Adjust User Wallet Points (نافذة الرصيد: إيداع أو خصم)
  */
 router.post('/users/:id/adjust-wallet', async (req, res) => {
     const client = await db.pool.connect();
@@ -254,9 +266,8 @@ router.post('/users/:id/adjust-wallet', async (req, res) => {
         const { id } = req.params;
         const { points, amount, type, reason } = req.body;
 
-        // دعم الصيغتين (points أو amount مع type) لتجنب أي تعارض مع التطبيق
         let deltaPoints = 0;
-        if (points !== undefined) {
+        if (points !== undefined && points !== null && points !== '') {
             deltaPoints = parseInt(points, 10);
         } else if (amount !== undefined && type !== undefined) {
             deltaPoints = type === 'ADD' ? parseInt(amount, 10) : -parseInt(amount, 10);
@@ -338,7 +349,7 @@ router.post('/users/:id/adjust-wallet', async (req, res) => {
 });
 
 /**
- * 5. Server-Side User Impersonation (Super Admin Only)
+ * 5. Server-Side User Impersonation (الهوية السحابية / تقمص الهوية)
  */
 router.post('/impersonate/:userId', requireSuperAdmin, async (req, res) => {
     try {
@@ -390,7 +401,7 @@ router.post('/impersonate/:userId', requireSuperAdmin, async (req, res) => {
 });
 
 /**
- * 6. TopUp Requests List
+ * 6. TopUp Requests List (طلبات الشحن)
  */
 router.get('/topup-requests', async (req, res) => {
     try {
@@ -464,7 +475,7 @@ router.post('/topup-requests/:id/approve', async (req, res) => {
             [
                 uuidv4(),
                 topup.user_id,
-                `تم تأكيد عملية التحويل عبر شام كاش وإضافة ${topup.package_points} نقطة بنجاح إلى رصيدك.`,
+                `تم تأكيد عملية التحويل وإضافة ${topup.package_points} نقطة بنجاح إلى رصيدك.`,
             ]
         );
 
@@ -556,7 +567,7 @@ router.post('/topup-requests/:id/reject', async (req, res) => {
 });
 
 /**
- * 9. Rides Moderation
+ * 9. Rides Moderation (إدارة الرحلات المنشورة)
  */
 router.get('/rides', async (req, res) => {
     try {
@@ -581,15 +592,17 @@ router.delete('/rides/:id', async (req, res) => {
         const ride = rideRes.rows[0];
         await db.query("UPDATE rides SET status = 'CANCELLED' WHERE id = $1", [id]);
 
-        await db.query(
-            `INSERT INTO notifications (id, user_id, title, message, type)
-       VALUES ($1, $2, 'إلغاء الرحلة من قبل الإدارة', $3, 'SYSTEM')`,
-            [
-                uuidv4(),
-                ride.driver_id,
-                `تم إلغاء رحلتك من ${ride.start_city} إلى ${ride.end_city} من قبل إدارة التطبيق. السبب: ${reason || 'مخالفة شروط النشر'}.`,
-            ]
-        );
+        if (ride.driver_id) {
+            await db.query(
+                `INSERT INTO notifications (id, user_id, title, message, type)
+         VALUES ($1, $2, 'إلغاء الرحلة من قبل الإدارة', $3, 'SYSTEM')`,
+                [
+                    uuidv4(),
+                    ride.driver_id,
+                    `تم إلغاء رحلتك من ${ride.start_city} إلى ${ride.end_city} من قبل إدارة التطبيق. السبب: ${reason || 'مخالفة شروط النشر'}.`,
+                ]
+            );
+        }
 
         await logAdminActivity(
             db,
@@ -609,7 +622,7 @@ router.delete('/rides/:id', async (req, res) => {
 });
 
 /**
- * 10. Requested Trips Moderation
+ * 10. Requested Trips Moderation (طلبات الركاب المعلقة)
  */
 router.get('/requested-trips', async (req, res) => {
     try {
@@ -645,7 +658,7 @@ router.delete('/requested-trips/:id', async (req, res) => {
 });
 
 /**
- * 11. Chat Moderation
+ * 11. Chat Moderation (الرقابة والتحكم بالمحادثات)
  */
 router.get('/chats', async (req, res) => {
     try {
@@ -719,7 +732,7 @@ router.post('/chats/:rideId/admin-message', async (req, res) => {
 });
 
 /**
- * 12. Broadcast Notification (Push/In-App)
+ * 12. Broadcast Notification & Push (الإشعارات والبث الجماعي)
  */
 router.post('/broadcast', async (req, res) => {
     try {
@@ -766,7 +779,7 @@ router.post('/broadcast', async (req, res) => {
 });
 
 /**
- * 13. App Settings (Remote Config)
+ * 13. App Settings / Remote Config (إعدادات التطبيق)
  */
 router.get('/settings', async (req, res) => {
     try {
@@ -812,7 +825,7 @@ router.put('/settings', async (req, res) => {
 });
 
 /**
- * 14. Financial and Activity Audit Logs
+ * 14. Financial and Activity Audit Logs (السجل والتدفق المالي)
  */
 router.get('/audit', async (req, res) => {
     try {
@@ -836,7 +849,7 @@ router.get('/audit', async (req, res) => {
 });
 
 /**
- * 15. Support Tickets
+ * 15. Support Tickets (مركز الدعم الفني)
  */
 router.get('/support-tickets', async (req, res) => {
     try {
