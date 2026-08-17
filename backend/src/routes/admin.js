@@ -74,10 +74,55 @@ router.get('/users', async (req, res) => {
  * 2. Edit User details
  */
 router.put('/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, email, phone, role, isVerified, userRole } = req.body;
+  const { id } = req.params;
+  const { name, email, phone, role, isVerified, userRole, walletPoints, wallet_points } = req.body;
+  
+  const client = await db.getClient();
 
+  try {
+    await client.query('BEGIN');
+
+    // 1. جلب البيانات الحالية للمستخدم لمعرفة النقاط القديمة
+    const oldUserRes = await client.query('SELECT wallet_points FROM users WHERE id = $1', [id]);
+    if (oldUserRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
+    }
+    const currentWalletPoints = parseInt(oldUserRes.rows[0].wallet_points, 10) || 0;
+
+    // 2. التحقق من وجود حقل النقاط في الطلب وحساب الفرق
+    const requestedPoints = walletPoints !== undefined ? walletPoints : wallet_points;
+    if (requestedPoints !== undefined && requestedPoints !== null) {
+      const newTargetPoints = parseInt(requestedPoints, 10);
+      
+      if (!isNaN(newTargetPoints) && newTargetPoints !== currentWalletPoints) {
+        const difference = newTargetPoints - currentWalletPoints;
+        const type = difference > 0 ? 'ADD' : 'DEDUCT';
+        const pointsToAdjust = Math.abs(difference);
+
+        // أ) تحديث النقاط في جدول المستخدمين
+        await client.query(
+          'UPDATE users SET wallet_points = $1 WHERE id = $2',
+          [newTargetPoints, id]
+        );
+
+        // ب) تسجيل المعاملة المالية في دفتر الحسابات wallet_transactions
+        await client.query(
+          `INSERT INTO wallet_transactions (id, user_id, type, points, amount_usd, description, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETED', CURRENT_TIMESTAMP)`,
+          [
+            require('crypto').randomUUID(),
+            id,
+            type,
+            pointsToAdjust,
+            pointsToAdjust / 10.0,
+            'تعديل إداري تلقائي عبر تحديث الملف الشخصي'
+          ]
+        );
+      }
+    }
+
+    // 3. تحديث باقي بيانات المستخدم الشخصية
     const query = `
       UPDATE users
       SET name = COALESCE($1, name),
@@ -90,34 +135,31 @@ router.put('/users/:id', async (req, res) => {
       WHERE id = $7
       RETURNING id, name, email, phone, role, is_verified, user_role, wallet_points
     `;
-    const result = await db.query(query, [
+    
+    const result = await client.query(query, [
       name || null,
       email ? email.trim().toLowerCase() : null,
       phone ? phone.trim() : null,
       role || null,
       isVerified !== undefined ? isVerified : null,
       userRole || null,
-      id,
+      id
     ]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
+    await client.query('COMMIT');
 
-    await logAdminActivity(
-      db,
-      req.user.userId,
-      req.user.email,
-      'تعديل بيانات مستخدم',
-      `تم تحديث بيانات المستخدم ${result.rows[0].name} (${id})`,
-      id,
-      req.ip
-    );
+    return res.json({
+      success: true,
+      message: 'تم تحديث بيانات المستخدم والرصيد بنجاح',
+      user: result.rows[0]
+    });
 
-    res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    console.error('Error updating user:', err);
-    res.status(500).json({ success: false, error: 'Failed to update user' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error in PUT /users/:id:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -809,4 +851,59 @@ router.post('/support-tickets/:id/reply', async (req, res) => {
   }
 });
 
+// ========================================================
+// مسار تعديل النقاط وتسجيل الحركة في wallet_transactions
+// POST /api/admin/users/:id/adjust-wallet
+// ========================================================
+router.post('/users/:id/adjust-wallet', async (req, res) => {
+  const { id } = req.params;
+  const { amount, type, reason } = req.body; // type: 'ADD' أو 'DEDUCT'
+
+  if (!amount || isNaN(amount) || amount <= 0) {
+    return res.status(400).json({ message: 'يرجى إدخال قيمة نقاط صالحة وموجبة' });
+  }
+
+  const client = await db.getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    const pointsChange = type === 'ADD' ? parseInt(amount, 10) : -parseInt(amount, 10);
+
+    // 1. تحديث إجمالي نقاط المستخدم
+    const updateRes = await client.query(
+      `UPDATE users 
+       SET wallet_points = wallet_points + $1 
+       WHERE id = $2 
+       RETURNING id, wallet_points`,
+      [pointsChange, id]
+    );
+
+    if (updateRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'المستخدم غير موجود' });
+    }
+
+    // 2. تدوين الحركة في دفتر المعاملات wallet_transactions
+    await client.query(
+      `INSERT INTO wallet_transactions (user_id, amount, type, reason, created_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [id, Math.abs(amount), type, reason || 'تعديل إداري من لوحة التحكم']
+    );
+
+    await client.query('COMMIT');
+
+    return res.json({
+      success: true,
+      message: 'تم تعديل النقاط وتسجيل الحركة بنجاح',
+      newWalletPoints: updateRes.rows[0].wallet_points
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Adjust Wallet Error:', error);
+    return res.status(500).json({ message: 'حدث خطأ أثناء تعديل النقاط', error: error.message });
+  } finally {
+    client.release();
+  }
+});
 module.exports = router;
