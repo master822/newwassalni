@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Wassalni Admin</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;
+ font-family:Arial,sans-serif;
+ background:#f1f5f9;
+ color:#0f172a
+}
+header{
+ position:sticky;
+ top:0;
+ z-index:10;
+ background:#0f172a;
+ color:#fff;
+ padding:15px 20px;
+ display:flex;
+ justify-content:space-between;
+ align-items:center
+}
+nav{
+ display:flex;
+ gap:8px;
+ flex-wrap:wrap;
+ padding:15px;
+ background:#fff;
+ border-bottom:1px solid #ddd
+}
+nav button{
+ border:0;
+ padding:10px 14px;
+ border-radius:8px;
+ cursor:pointer;
+ background:#e2e8f0
+}
+main{padding:20px;max-width:1400px;margin:auto}
+section{
+ display:none;
+ background:#fff;
+ border-radius:14px;
+ padding:20px;
+ margin-bottom:20px;
+ box-shadow:0 5px 20px #0000000d
+}
+section.active{display:block}
+.grid{
+ display:grid;
+ grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+ gap:15px
+}
+.card{
+ padding:18px;
+ border:1px solid #e2e8f0;
+ border-radius:12px
+}
+input,textarea,select{
+ width:100%;
+ padding:11px;
+ margin:7px 0;
+ border:1px solid #cbd5e1;
+ border-radius:8px
+}
+textarea{min-height:120px}
+button.action{
+ padding:10px 14px;
+ border:0;
+ border-radius:8px;
+ background:#2563eb;
+ color:white;
+ cursor:pointer
+}
+button.danger{background:#dc2626}
+button.success{background:#16a34a}
+pre{
+ white-space:pre-wrap;
+ background:#0f172a;
+ color:#d1fae5;
+ padding:15px;
+ border-radius:10px;
+ overflow:auto
+}
+table{width:100%;border-collapse:collapse}
+td,th{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left}
+</style>
+</head>
+<body>
+
+<header>
+<strong>Wassalni Administration</strong>
+<button onclick="logout()">Logout</button>
+</header>
+
+<nav>
+<button onclick="show('dashboard')">Dashboard</button>
+<button onclick="show('users')">Users</button>
+<button onclick="show('wallet')">Wallet / Points</button>
+<button onclick="show('notifications')">Notifications</button>
+<button onclick="show('messages')">Chats</button>
+<button onclick="show('settings')">App Settings</button>
+<button onclick="show('security')">Security</button>
+<button onclick="show('logs')">Audit Logs</button>
+</nav>
+
+<main>
+
+<section id="dashboard" class="active">
+<h2>Dashboard</h2>
+<div class="grid">
+<div class="card"><h3>Users</h3><div id="usersCount">Loading...</div></div>
+<div class="card"><h3>Pending Topups</h3><div id="topupsCount">Loading...</div></div>
+<div class="card"><h3>Messages</h3><div id="messagesCount">Loading...</div></div>
+<div class="card"><h3>Status</h3><div>Administrator authenticated</div></div>
+</div>
+</section>
+
+<section id="users">
+<h2>User Management</h2>
+<p>Search and manage application users.</p>
+<input id="userSearch" placeholder="User ID, name, email or phone">
+<button class="action" onclick="searchUsers()">Search</button>
+<pre id="usersResult">No search performed.</pre>
+</section>
+
+<section id="wallet">
+<h2>Points / Wallet</h2>
+
+<div class="grid">
+<div class="card">
+<h3>Adjust User Points</h3>
+<input id="pointsUserId" placeholder="User ID">
+<input id="pointsAmount" type="number" placeholder="Amount (+/-)">
+<input id="pointsReason" placeholder="Reason">
+<button class="action" onclick="adjustPoints()">Apply</button>
+</div>
+
+<div class="card">
+<h3>Sham Cash Purchase Requests</h3>
+<button class="action" onclick="loadTopups()">Load Requests</button>
+<pre id="topupsResult"></pre>
+</div>
+</div>
+</section>
+
+<section id="notifications">
+<h2>Global Notification</h2>
+<input id="notificationTitle" placeholder="Notification title">
+<textarea id="notificationBody" placeholder="Notification message"></textarea>
+<button class="action" onclick="broadcast()">Send To All Users</button>
+<pre id="notificationResult"></pre>
+</section>
+
+<section id="messages">
+<h2>User Chats</h2>
+<input id="rideId" placeholder="Ride ID">
+<button class="action" onclick="loadChat()">Load Chat</button>
+<textarea id="adminMessage" placeholder="Write administrator message"></textarea>
+<button class="action" onclick="sendAdminMessage()">Send Message</button>
+<pre id="chatResult"></pre>
+</section>
+
+<section id="settings">
+<h2>Application Settings</h2>
+
+<div class="card">
+<label>APK Download URL</label>
+<input id="apkUrl">
+
+<label>Sham Cash Code / Account</label>
+<input id="shamCash">
+
+<label>Points Purchase Code</label>
+<input id="pointsCode">
+
+<button class="action" onclick="saveSettings()">Save Settings</button>
+<pre id="settingsResult"></pre>
+</div>
+</section>
+
+<section id="security">
+<h2>Administrator Security</h2>
+
+<div class="grid">
+<div class="card">
+<h3>Change Administrator Email</h3>
+<input id="newEmail" type="email" placeholder="New email">
+<button class="action" onclick="changeAdmin('email')">Change</button>
+</div>
+
+<div class="card">
+<h3>Change Administrator Password</h3>
+<input id="newPassword" type="password" placeholder="New password">
+<button class="action" onclick="changeAdmin('password')">Change</button>
+</div>
+
+<div class="card">
+<h3>Change Administrator Name</h3>
+<input id="newName" placeholder="New name">
+<button class="action" onclick="changeAdmin('name')">Change</button>
+</div>
+</div>
+
+<pre id="securityResult"></pre>
+</section>
+
+<section id="logs">
+<h2>Audit Logs</h2>
+<button class="action" onclick="loadLogs()">Load Logs</button>
+<pre id="logsResult"></pre>
+</section>
+
+</main>
+
+<script>
+const token=sessionStorage.getItem('wassalni_admin_token');
+
+if(!token){
+ window.location.href='/aboahmad';
+}
+
+function show(id){
+ document.querySelectorAll('section').forEach(x=>x.classList.remove('active'));
+ document.getElementById(id).classList.add('active');
+}
+
+async function api(url,options={}){
+ options.headers={
+   ...(options.headers||{}),
+   'Content-Type':'application/json',
+   'Authorization':'Bearer '+sessionStorage.getItem('wassalni_admin_token')
+ };
+ options.credentials='same-origin';
+
+ const r=await fetch(url,options);
+
+ if(r.status===401 || r.status===403){
+   sessionStorage.removeItem('wassalni_admin_token');
+   window.location.href='/aboahmad';
+   return;
+ }
+
+ const data=await r.json().catch(()=>({}));
+
+ if(!r.ok){
+   throw new Error(data.message||data.error||'Request failed');
+ }
+
+ return data;
+}
+
+function output(id,data){
+ document.getElementById(id).textContent=JSON.stringify(data,null,2);
+}
+
+async function searchUsers(){
+ try{
+   const q=document.getElementById('userSearch').value;
+   const data=await api('/api/admin/users?search='+encodeURIComponent(q));
+   output('usersResult',data);
+ }catch(e){output('usersResult',{error:e.message})}
+}
+
+async function adjustPoints(){
+ try{
+   const id=document.getElementById('pointsUserId').value;
+   const amount=Number(document.getElementById('pointsAmount').value);
+   const reason=document.getElementById('pointsReason').value;
+
+   const data=await api('/api/admin/users/'+encodeURIComponent(id)+'/adjust-wallet',{
+     method:'POST',
+     body:JSON.stringify({amount,reason})
+   });
+
+   output('topupsResult',data);
+ }catch(e){output('topupsResult',{error:e.message})}
+}
+
+async function loadTopups(){
+ try{
+   const data=await api('/api/admin/topup-requests');
+   output('topupsResult',data);
+ }catch(e){output('topupsResult',{error:e.message})}
+}
+
+async function broadcast(){
+ try{
+   const data=await api('/api/admin/broadcast',{
+     method:'POST',
+     body:JSON.stringify({
+       title:document.getElementById('notificationTitle').value,
+       body:document.getElementById('notificationBody').value
+     })
+   });
+   output('notificationResult',data);
+ }catch(e){output('notificationResult',{error:e.message})}
+}
+
+async function loadChat(){
+ try{
+   const id=document.getElementById('rideId').value;
+   const data=await api('/api/messages/'+encodeURIComponent(id));
+   output('chatResult',data);
+ }catch(e){output('chatResult',{error:e.message})}
+}
+
+async function sendAdminMessage(){
+ try{
+   const id=document.getElementById('rideId').value;
+   const body=document.getElementById('adminMessage').value;
+
+   const data=await api('/api/admin/chats/'+encodeURIComponent(id)+'/aboahmad-message',{
+     method:'POST',
+     body:JSON.stringify({message:body})
+   });
+
+   output('chatResult',data);
+ }catch(e){output('chatResult',{error:e.message})}
+}
+
+async function saveSettings(){
+ try{
+   const data=await api('/api/admin/settings',{
+     method:'PUT',
+     body:JSON.stringify({
+       appDownloadUrl:document.getElementById('apkUrl').value,
+       shamCashCode:document.getElementById('shamCash').value,
+       pointsPurchaseCode:document.getElementById('pointsCode').value
+     })
+   });
+   output('settingsResult',data);
+ }catch(e){output('settingsResult',{error:e.message})}
+}
+
+async function changeAdmin(type){
+ try{
+   const values={
+     email:document.getElementById('newEmail').value,
+     password:document.getElementById('newPassword').value,
+     name:document.getElementById('newName').value
+   };
+
+   const data=await api('/api/admin/profile',{
+     method:'PUT',
+     body:JSON.stringify({[type]:values[type]})
+   });
+
+   output('securityResult',data);
+ }catch(e){output('securityResult',{error:e.message})}
+}
+
+async function loadLogs(){
+ try{
+   const data=await api('/api/admin/activity-logs');
+   output('logsResult',data);
+ }catch(e){output('logsResult',{error:e.message})}
+}
+
+async function loadSettings(){
+ try{
+   const data=await api('/api/settings');
+   const s=data.settings||data;
+
+   document.getElementById('apkUrl').value=s.appDownloadUrl||'';
+   document.getElementById('shamCash').value=s.shamCashCode||'';
+   document.getElementById('pointsCode').value=s.pointsPurchaseCode||'';
+ }catch(e){
+   output('settingsResult',{error:e.message});
+ }
+}
+
+loadSettings();
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Wassalni Control Panel</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:Arial,sans-serif;
+  background:#0b1220;
+  color:#fff
+}
+.card{
+  width:min(420px,92vw);
+  padding:32px;
+  border-radius:20px;
+  background:#111b2e;
+  box-shadow:0 20px 60px #0008
+}
+h1{margin:0 0 8px}
+p{color:#9ca9bd}
+input{
+  width:100%;
+  padding:14px;
+  margin:8px 0;
+  border:1px solid #334155;
+  border-radius:10px;
+  background:#0b1220;
+  color:white
+}
+button{
+  width:100%;
+  padding:14px;
+  margin-top:12px;
+  border:0;
+  border-radius:10px;
+  background:#2563eb;
+  color:white;
+  font-weight:bold;
+  cursor:pointer
+}
+button:hover{background:#1d4ed8}
+#error{color:#f87171;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Wassalni</h1>
+<p>Secure Administration Control Panel</p>
+
+<form id="loginForm">
+<input id="email" type="email" placeholder="Administrator email" autocomplete="username" required>
+<input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+<button type="submit">Sign in</button>
+<div id="error"></div>
+</form>
+</div>
+
+<script>
+const form=document.getElementById('loginForm');
+const error=document.getElementById('error');
+
+form.addEventListener('submit',async e=>{
+  e.preventDefault();
+  error.textContent='';
+
+  try{
+    const response=await fetch('/api/auth/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body:JSON.stringify({
+        email:document.getElementById('email').value.trim(),
+        password:document.getElementById('password').value
+      })
+    });
+
+    const data=await response.json().catch(()=>({}));
+
+    if(!response.ok){
+      throw new Error(data.message||data.error||'Login failed');
+    }
+
+    const role=data.user?.role||data.role||data.user?.userRole;
+
+    if(role!=='SUPER_ADMIN' && role!=='ADMIN'){
+      throw new Error('Administrator access required');
+    }
+
+    if(data.access_token){
+      sessionStorage.setItem('wassalni_admin_token',data.access_token);
+    }else if(data.token){
+      sessionStorage.setItem('wassalni_admin_token',data.token);
+    }
+
+    window.location.href='/aboahmad/panel.html';
+  }catch(err){
+    error.textContent=err.message||'Login failed';
+  }
+});
+</script>
+</body>
+</html>
