@@ -51,6 +51,25 @@ router.post('/register', async (req, res) => {
 
     let verifiedPhone;
 
+    // Normalize the registration phone exactly like /send-otp and /verify-otp.
+    let normalizedRegisterPhone = phone.trim().replace(/[\s()-]/g, '');
+
+    if (normalizedRegisterPhone.startsWith('+')) {
+      normalizedRegisterPhone = normalizedRegisterPhone.substring(1);
+    }
+
+    if (normalizedRegisterPhone.startsWith('0')) {
+      normalizedRegisterPhone = '963' + normalizedRegisterPhone.substring(1);
+    }
+
+    if (!/^9639\d{8}$/.test(normalizedRegisterPhone)) {
+      return res.status(400).json({
+        success: false,
+        error: 'يرجى إدخال رقم هاتف سوري صالح',
+        code: 'INVALID_SYRIAN_PHONE',
+      });
+    }
+
     try {
       const decoded = jwt.verify(verifyToken, JWT_SECRET);
 
@@ -67,7 +86,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    if (verifiedPhone !== phone.trim()) {
+    if (verifiedPhone !== normalizedRegisterPhone) {
       return res.status(400).json({
         success: false,
         error: 'رقم الهاتف لا يطابق الرقم الذي تم التحقق منه',
@@ -87,7 +106,7 @@ router.post('/register', async (req, res) => {
     // Check unique email and phone
     const existingCheck = await client.query(
       'SELECT id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
-      [email.trim(), phone.trim()]
+      [email.trim(), normalizedRegisterPhone]
     );
     if (existingCheck.rows.length > 0) {
       await client.query('ROLLBACK');
@@ -118,7 +137,7 @@ router.post('/register', async (req, res) => {
       userId,
       name.trim(),
       email.trim().toLowerCase(),
-      phone.trim(),
+      normalizedRegisterPhone,
       passwordHash,
       startingPoints,
       initialRole,
@@ -153,7 +172,7 @@ router.post('/register', async (req, res) => {
       if (referrerRes.rows.length > 0) {
         const referrer = referrerRes.rows[0];
         // Prevent self-referral
-        if (referrer.id !== userId && referrer.email.toLowerCase() !== email.trim().toLowerCase() && referrer.phone !== phone.trim()) {
+        if (referrer.id !== userId && referrer.email.toLowerCase() !== email.trim().toLowerCase() && referrer.phone !== normalizedRegisterPhone) {
           const referralRewardPoints = 50; // Exactly 50 points to referrer
 
           // Update referrer balance
