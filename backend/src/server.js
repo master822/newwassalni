@@ -67,18 +67,88 @@ app.get('/health', async (req, res) => {
 
 // TEMPORARY MSGPlus connectivity diagnostic
 app.get('/health/msgplus', async (req, res) => {
+  const dns = require('dns');
+  const net = require('net');
   const https = require('https');
 
-  const startedAt = Date.now();
+  const result = {
+    service: 'msgPlus',
+    dns: null,
+    tcp443: null,
+    https: null,
+  };
 
-  const result = await new Promise((resolve) => {
-    const req = https.get(
+  // DNS
+  try {
+    const addresses = await new Promise((resolve, reject) => {
+      dns.resolve4('sms.msgplus.tech', (err, addresses) => {
+        if (err) reject(err);
+        else resolve(addresses);
+      });
+    });
+
+    result.dns = {
+      success: true,
+      addresses,
+    };
+  } catch (err) {
+    result.dns = {
+      success: false,
+      error: err.code || err.message,
+    };
+  }
+
+  // TCP 443
+  if (result.dns.success) {
+    result.tcp443 = await new Promise((resolve) => {
+      const started = Date.now();
+
+      const socket = net.createConnection({
+        host: result.dns.addresses[0],
+        port: 443,
+        timeout: 8000,
+      });
+
+      socket.on('connect', () => {
+        const elapsedMs = Date.now() - started;
+        socket.destroy();
+        resolve({
+          success: true,
+          elapsedMs,
+        });
+      });
+
+      socket.on('timeout', () => {
+        socket.destroy();
+        resolve({
+          success: false,
+          error: 'TCP_TIMEOUT',
+          elapsedMs: Date.now() - started,
+        });
+      });
+
+      socket.on('error', (err) => {
+        socket.destroy();
+        resolve({
+          success: false,
+          error: err.code || err.message,
+          elapsedMs: Date.now() - started,
+        });
+      });
+    });
+  }
+
+  // HTTPS
+  result.https = await new Promise((resolve) => {
+    const started = Date.now();
+
+    const request = https.get(
       'https://sms.msgplus.tech/api/ping',
       {
         timeout: 8000,
         headers: {
           Accept: 'application/json',
-          'User-Agent': 'Wassalni-Backend-Diagnostic/1.0',
+          'User-Agent': 'Wassalni-Diagnostic/1.0',
         },
       },
       (response) => {
@@ -93,32 +163,36 @@ app.get('/health/msgplus', async (req, res) => {
             success: true,
             statusCode: response.statusCode,
             body: body.slice(0, 1000),
+            elapsedMs: Date.now() - started,
           });
         });
       }
     );
 
-    req.on('timeout', () => {
-      req.destroy();
+    request.on('timeout', () => {
+      request.destroy();
       resolve({
         success: false,
-        error: 'TIMEOUT',
+        error: 'HTTPS_TIMEOUT',
+        elapsedMs: Date.now() - started,
       });
     });
 
-    req.on('error', (err) => {
+    request.on('error', (err) => {
       resolve({
         success: false,
         error: err.code || err.message,
+        elapsedMs: Date.now() - started,
       });
     });
   });
 
-  res.status(result.success ? 200 : 502).json({
-    service: 'msgPlus',
-    elapsedMs: Date.now() - startedAt,
-    ...result,
-  });
+  const success =
+    result.dns?.success &&
+    result.tcp443?.success &&
+    result.https?.success;
+
+  res.status(success ? 200 : 502).json(result);
 });
 
 // App Routes
