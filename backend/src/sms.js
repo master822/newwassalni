@@ -11,9 +11,14 @@ const http = require('http');
 function formatPhoneNumber(phone) {
   if (!phone) return '';
   let clean = phone.toString().replace(/[\s\-\(\)\+]/g, '');
+  if (clean.startsWith('00')) {
+    clean = clean.substring(2);
+  }
+
   if (clean.startsWith('09') && clean.length === 10) {
     clean = '963' + clean.substring(1);
   }
+
   return clean;
 }
 

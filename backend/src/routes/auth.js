@@ -10,7 +10,7 @@ const {
   authenticateToken,
 } = require('../middleware/auth');
 const { sendPasswordResetEmail } = require('../mailgun');
-const { sendOtpSms } = require('../sms');
+const { sendOtpSms, formatPhoneNumber } = require('../sms');
 
 const ACCESS_TOKEN_EXPIRY = '1h'; // 1 hour access token
 const REFRESH_TOKEN_EXPIRY = '30d';
@@ -448,7 +448,7 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ success: false, error: 'رقم الهاتف غير صالح' });
     }
 
-    const cleanPhone = phone.trim();
+    const cleanPhone = formatPhoneNumber(phone);
 
     // Check rate limiting: max 5 requests in 10 minutes
     const rateCheck = await db.query(
@@ -468,19 +468,36 @@ router.post('/send-otp', async (req, res) => {
     const otpHash = await bcrypt.hash(generatedOtp, 8);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
 
+    const otpId = uuidv4();
+
     await db.query(
       'INSERT INTO otp_verifications (id, phone, otp_hash, expires_at) VALUES ($1, $2, $3, $4)',
-      [uuidv4(), cleanPhone, otpHash, expiresAt]
+      [otpId, cleanPhone, otpHash, expiresAt]
     );
 
     // Send SMS via MSGPlus gateway
-    let smsSuccess = true;
+    let smsSuccess = false;
+    let smsResult = null;
+
     try {
-      const smsRes = await sendOtpSms(cleanPhone, generatedOtp);
-      smsSuccess = smsRes.success !== false;
+      smsResult = await sendOtpSms(cleanPhone, generatedOtp);
+      smsSuccess = smsResult && smsResult.success !== false;
     } catch (smsErr) {
       console.error('MSGPlus SMS dispatch error:', smsErr.message);
       smsSuccess = false;
+    }
+
+    // Do not report success when the SMS gateway failed.
+    if (!smsSuccess) {
+      await db.query(
+        'DELETE FROM otp_verifications WHERE phone = $1 AND id = $2',
+        [cleanPhone, otpId]
+      );
+
+      return res.status(502).json({
+        success: false,
+        error: 'تعذر إرسال رسالة التحقق عبر SMS. يرجى المحاولة لاحقاً.',
+      });
     }
 
     res.json({
@@ -504,7 +521,7 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ success: false, error: 'رقم الهاتف ورمز OTP مطلوبان' });
     }
 
-    const cleanPhone = phone.trim();
+    const cleanPhone = formatPhoneNumber(phone);
     const record = await db.query(
       'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
       [cleanPhone]
@@ -561,7 +578,7 @@ router.post('/reset-password', async (req, res) => {
 
     await client.query('BEGIN');
 
-    const cleanPhone = phone.trim();
+    const cleanPhone = formatPhoneNumber(phone);
     const otpRes = await client.query(
       'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1 FOR UPDATE',
       [cleanPhone]

@@ -66,6 +66,27 @@ app.get('/health', async (req, res) => {
 });
 
 // App Routes
+
+// TEMP MSGPLUS CONNECTION TEST - REMOVE AFTER TEST
+app.get('/debug/msgplus', async (req, res) => {
+  try {
+    const { sendOtpSms, formatPhoneNumber } = require('./sms');
+
+    const phone = '0980687216';
+    const result = await sendOtpSms(phone, '123456');
+
+    res.json({
+      phone,
+      formatted: formatPhoneNumber(phone),
+      result
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/rides', ridesRoutes);
