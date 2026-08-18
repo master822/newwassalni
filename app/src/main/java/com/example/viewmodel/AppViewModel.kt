@@ -388,7 +388,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun verifyPhoneOtp(phone: String, otp: String): Pair<Boolean, String> {
         val result = repository.verifyOtp(phone, otp)
         return if (result.isSuccess) {
-            Pair(true, result.getOrNull() ?: "")
+            val verifyToken = result.getOrNull()?.verifyToken
+            if (!verifyToken.isNullOrBlank()) {
+                Pair(true, verifyToken)
+            } else {
+                Pair(false, "تم التحقق من الرمز لكن لم يتم استلام رمز التحقق من الخادم")
+            }
         } else {
             Pair(false, result.exceptionOrNull()?.message ?: "رمز التحقق غير صحيح أو منتهي الصلاحية")
         }

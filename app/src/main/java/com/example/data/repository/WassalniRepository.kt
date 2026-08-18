@@ -25,7 +25,22 @@ class WassalniRepository(
 
     suspend fun login(emailOrPhone: String, pass: String): Result<UserDto> = withContext(Dispatchers.IO) {
         try {
-            val res = api.login(LoginRequest(emailOrPhone.trim(), pass))
+            val identifier = emailOrPhone.trim()
+            val request = if (identifier.contains("@")) {
+                LoginRequest(
+                    email = identifier,
+                    phone = null,
+                    password = pass
+                )
+            } else {
+                LoginRequest(
+                    email = null,
+                    phone = identifier,
+                    password = pass
+                )
+            }
+
+            val res = api.login(request)
             if (res.isSuccessful && res.body()?.success == true) {
                 val body = res.body()!!
                 val user = body.user!!
@@ -138,13 +153,19 @@ class WassalniRepository(
         }
     }
 
-    suspend fun verifyOtp(phone: String, otp: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun verifyOtp(phone: String, otp: String): Result<VerifyOtpResponse> = withContext(Dispatchers.IO) {
         try {
             val res = api.verifyOtp(VerifyOtpRequest(phone.trim(), otp.trim()))
-            if (res.isSuccessful && res.body()?.success == true) {
-                Result.success(res.body()?.verifyToken ?: "")
+            val body = res.body()
+
+            if (res.isSuccessful && body?.success == true) {
+                if (!body.verifyToken.isNullOrBlank()) {
+                    Result.success(body)
+                } else {
+                    Result.failure(Exception("تم التحقق من الرمز لكن لم يتم استلام رمز التحقق من الخادم"))
+                }
             } else {
-                val errorMsg = res.body()?.error ?: "رمز التحقق غير صحيح"
+                val errorMsg = body?.error ?: "رمز التحقق غير صحيح"
                 Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {

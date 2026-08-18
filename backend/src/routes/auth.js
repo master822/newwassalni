@@ -72,17 +72,34 @@ router.post('/register', async (req, res) => {
 
     await client.query('BEGIN');
 
-    // Check unique email and phone
-    const existingCheck = await client.query(
-      'SELECT id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
-      [email.trim(), cleanPhone]
+    // Email and phone are both unique identifiers.
+    // One account may use either identifier for login,
+    // but neither identifier may belong to another account.
+    const cleanEmail = email.trim().toLowerCase();
+
+    const existingEmail = await client.query(
+      'SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1',
+      [cleanEmail]
     );
-    if (existingCheck.rows.length > 0) {
+
+    if (existingEmail.rows.length > 0) {
       await client.query('ROLLBACK');
-      const isEmail = existingCheck.rows.some(r => r.email.toLowerCase() === email.trim().toLowerCase());
       return res.status(409).json({
         success: false,
-        error: isEmail ? 'البريد الإلكتروني مسجل مسبقاً' : 'رقم الهاتف مسجل مسبقاً',
+        error: 'البريد الإلكتروني مسجل مسبقاً',
+      });
+    }
+
+    const existingPhone = await client.query(
+      'SELECT id FROM users WHERE phone = $1 LIMIT 1',
+      [cleanPhone]
+    );
+
+    if (existingPhone.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        success: false,
+        error: 'رقم الهاتف مسجل مسبقاً',
       });
     }
 
@@ -236,19 +253,43 @@ router.post('/register', async (req, res) => {
  */
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'البريد الإلكتروني وكلمة المرور مطلوبة' });
+    const { email, phone, password } = req.body;
+
+    if ((!email && !phone) || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'البريد الإلكتروني أو رقم الهاتف وكلمة المرور مطلوبة',
+      });
     }
 
-    const cleanInput = email.trim().toLowerCase();
-    const result = await db.query(
-      'SELECT * FROM users WHERE LOWER(email) = $1 OR phone = $2',
-      [cleanInput, email.trim()]
-    );
+    let result;
+
+    if (phone) {
+      // Use the exact same normalization used during registration.
+      const cleanPhone = formatPhoneNumber(phone);
+
+      result = await db.query(
+        `SELECT * FROM users
+         WHERE phone = $1
+         LIMIT 1`,
+        [cleanPhone]
+      );
+    } else {
+      const cleanEmail = email.trim().toLowerCase();
+
+      result = await db.query(
+        `SELECT * FROM users
+         WHERE LOWER(email) = $1
+         LIMIT 1`,
+        [cleanEmail]
+      );
+    }
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ success: false, error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
+      return res.status(401).json({
+        success: false,
+        error: 'البريد الإلكتروني أو رقم الهاتف أو كلمة المرور غير صحيحة',
+      });
     }
 
     const user = result.rows[0];
@@ -582,7 +623,8 @@ router.post('/verify-otp', async (req, res) => {
     res.json({
       success: true,
       message: 'تم التحقق من رقم الهاتف بنجاح',
-      verifyToken,
+      verifyToken: verifyToken,
+      token: verifyToken,
     });
   } catch (err) {
     console.error('Verify OTP error:', err);

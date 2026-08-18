@@ -42,7 +42,8 @@ data class UserDto(
 
 @JsonClass(generateAdapter = true)
 data class LoginRequest(
-    @Json(name = "email") val email: String,
+    @Json(name = "email") val email: String? = null,
+    @Json(name = "phone") val phone: String? = null,
     @Json(name = "password") val password: String
 )
 
