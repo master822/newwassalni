@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>وصلني | مركز الإدارة</title><link rel="stylesheet" href="/admin/assets/admin.css">
+</head>
+<body>
+<div class="admin-shell">
+<aside class="sidebar">
+  <h2>🚗 وصلني</h2><div id="adminName" class="admin-identity"></div>
+  <nav class="nav">
+    <button class="active" data-section="overview">📊 الرئيسية</button>
+    <button data-section="users">👥 المستخدمون</button>
+    <button data-section="rides">🚗 الرحلات</button>
+    <button data-section="requests">📋 طلبات الرحلات</button>
+    <button data-section="chats">💬 المحادثات</button>
+    <button data-section="topups">💰 الشحن والمحفظة</button>
+    <button data-section="support">🎧 الدعم</button>
+    <button data-section="broadcast">📢 الإشعارات</button>
+    <button data-section="settings">⚙️ إعدادات التطبيق</button>
+    <button data-section="audit">🛡️ السجل والتدقيق</button>
+  </nav>
+</aside>
+<main class="content">
+<header class="topbar"><div><h1 id="pageTitle">الرئيسية</h1><div id="statusText" class="muted">جاري الاتصال...</div></div><button class="logout" id="logout">تسجيل الخروج</button></header>
+<section id="overview" class="section active"><div class="grid">
+ <div class="card"><div class="muted">المستخدمون</div><div id="usersCount" class="stat-value">—</div></div>
+ <div class="card"><div class="muted">الرحلات</div><div id="ridesCount" class="stat-value">—</div></div>
+ <div class="card"><div class="muted">طلبات الشحن</div><div id="topupsCount" class="stat-value">—</div></div>
+ <div class="card"><div class="muted">صلاحية المدير</div><div id="roleValue" class="stat-value small">—</div></div>
+</div><div class="card notice"><h3>مركز تحكم كامل</h3><p>من هنا يمكنك إدارة المستخدمين والرحلات والمحادثات والمحفظة والدعم والإشعارات وإعدادات التطبيق ومراجعة سجل عمليات الإدارة.</p></div></section>
+<section id="users" class="section"><div class="toolbar"><input id="userSearch" placeholder="بحث بالاسم أو البريد أو الهاتف أو كود الإحالة"><select id="userRole"><option value="">كل الأدوار</option><option>USER</option><option>ADMIN</option><option>SUPER_ADMIN</option></select><select id="userSuspended"><option value="">كل الحالات</option><option value="false">نشط</option><option value="true">موقوف</option></select><button class="action" id="refreshUsers">تحديث</button></div><div class="table-wrap"><table class="table"><thead><tr><th>الاسم</th><th>البريد</th><th>الهاتف</th><th>الدور</th><th>النقاط</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="usersBody"></tbody></table></div></section>
+<section id="rides" class="section"><div class="toolbar"><button class="action" id="refreshRides">تحديث</button></div><div class="table-wrap"><table class="table"><thead><tr><th>السائق</th><th>من</th><th>إلى</th><th>التاريخ</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="ridesBody"></tbody></table></div></section>
+<section id="requests" class="section"><div class="toolbar"><button class="action" id="refreshRequests">تحديث</button></div><div class="table-wrap"><table class="table"><thead><tr><th>المعرف</th><th>البيانات</th><th>الحالة</th><th>التاريخ</th><th>إجراء</th></tr></thead><tbody id="requestsBody"></tbody></table></div></section>
+<section id="chats" class="section"><div class="toolbar"><button class="action" id="refreshChats">تحديث المحادثات</button></div><div class="split"><div class="table-wrap"><table class="table"><thead><tr><th>الرحلة</th><th>المسار</th><th>الرسائل</th><th>آخر رسالة</th><th></th></tr></thead><tbody id="chatsBody"></tbody></table></div><div class="card chat-panel"><h3 id="chatTitle">اختر محادثة</h3><div id="messagesBody" class="messages"></div><div class="chat-compose"><input id="adminMessage" placeholder="إرسال رسالة باسم الإدارة"><button class="primary small-btn" id="sendAdminMessage">إرسال</button><button class="action danger" id="clearChat">مسح المحادثة</button></div></div></div></section>
+<section id="topups" class="section"><div class="toolbar"><button class="action" id="refreshTopups">تحديث</button></div><div class="table-wrap"><table class="table"><thead><tr><th>المستخدم</th><th>النقاط</th><th>السعر</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="topupsBody"></tbody></table></div></section>
+<section id="support" class="section"><div class="toolbar"><button class="action" id="refreshSupport">تحديث التذاكر</button></div><div class="table-wrap"><table class="table"><thead><tr><th>المعرف</th><th>المستخدم</th><th>الموضوع</th><th>الحالة</th><th>الرسالة</th><th>إجراء</th></tr></thead><tbody id="supportBody"></tbody></table></div></section>
+<section id="broadcast" class="section"><div class="card form-card"><h3>إرسال إشعار جماعي</h3><label>الفئة</label><select id="broadcastAudience"><option value="ALL">الجميع</option><option value="DRIVERS">السائقون</option><option value="PASSENGERS">الركاب</option></select><label>العنوان</label><input id="broadcastTitle" placeholder="عنوان الإشعار"><label>الرسالة</label><textarea id="broadcastMessage" rows="6" placeholder="نص الإشعار..."></textarea><button class="primary" id="sendBroadcast">إرسال الإشعار</button></div></section>
+<section id="settings" class="section"><div class="card form-card"><h3>الإعدادات العامة</h3><p class="muted">يمكن تعديل القيم التي يدعمها التطبيق عن بعد. تغيير اسم التطبيق أو أيقونة APK فعليًا يحتاج إصدارًا جديدًا إذا لم يكن التطبيق مصممًا لتحميلهما عن بعد.</p><div id="settingsForm" class="settings-grid"></div><button class="primary" id="saveSettings">حفظ كل الإعدادات</button></div></section>
+<section id="audit" class="section"><div class="toolbar"><button class="action" id="refreshAudit">تحديث السجل</button></div><div class="card"><h3>سجل عمليات المديرين</h3><div class="table-wrap"><table class="table"><thead><tr><th>المدير</th><th>العملية</th><th>التفاصيل</th><th>الهدف</th><th>التاريخ</th></tr></thead><tbody id="auditBody"></tbody></table></div></div><div class="card"><h3>سجل المحفظة</h3><div class="table-wrap"><table class="table"><thead><tr><th>المستخدم</th><th>النوع</th><th>النقاط</th><th>المبلغ</th><th>الوصف</th><th>التاريخ</th></tr></thead><tbody id="walletAuditBody"></tbody></table></div></div></section>
+</main></div>
+<script src="/admin/assets/dashboard.js" defer></script>
+</body></html>
