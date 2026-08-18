@@ -72,10 +72,20 @@ class WassalniRepository(
         email: String,
         phone: String,
         pass: String,
-        referralCode: String?
+        referralCode: String?,
+        verifyToken: String? = null
     ): Result<UserDto> = withContext(Dispatchers.IO) {
         try {
-            val res = api.register(RegisterRequest(name.trim(), email.trim(), phone.trim(), pass, referralCode?.trim()?.ifBlank { null }))
+            val res = api.register(
+                RegisterRequest(
+                    name = name.trim(),
+                    email = email.trim(),
+                    phone = phone.trim(),
+                    password = pass,
+                    referralCode = referralCode?.trim()?.ifBlank { null },
+                    verifyToken = verifyToken?.trim()?.ifBlank { null }
+                )
+            )
             if (res.isSuccessful && res.body()?.success == true) {
                 val body = res.body()!!
                 val user = body.user!!

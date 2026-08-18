@@ -52,7 +52,8 @@ data class RegisterRequest(
     @Json(name = "email") val email: String,
     @Json(name = "phone") val phone: String,
     @Json(name = "password") val password: String,
-    @Json(name = "referralCode") val referralCode: String? = null
+    @Json(name = "referralCode") val referralCode: String? = null,
+    @Json(name = "verifyToken") val verifyToken: String? = null
 )
 
 @JsonClass(generateAdapter = true)
