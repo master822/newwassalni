@@ -25,7 +25,36 @@ const REFRESH_TOKEN_EXPIRY = '30d';
 router.post('/register', async (req, res) => {
   const client = await db.pool.connect();
   try {
-    const { name, email, phone, password, referralCode } = req.body;
+    const { name, email, phone, password, referralCode, verifyToken } = req.body;
+
+    if (!name || !email || !phone || !password || !verifyToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'يجب التحقق من رقم الهاتف أولاً',
+      });
+    }
+
+    let decodedVerification;
+    try {
+      decodedVerification = jwt.verify(verifyToken, JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: 'رمز التحقق من الهاتف غير صالح أو منتهي الصلاحية',
+      });
+    }
+
+    const cleanPhone = formatPhoneNumber(phone);
+
+    if (
+      decodedVerification.verified !== true ||
+      decodedVerification.phone !== cleanPhone
+    ) {
+      return res.status(401).json({
+        success: false,
+        error: 'رمز التحقق لا يطابق رقم الهاتف',
+      });
+    }
 
     if (!name || !email || !phone || !password) {
       return res.status(400).json({
@@ -46,7 +75,7 @@ router.post('/register', async (req, res) => {
     // Check unique email and phone
     const existingCheck = await client.query(
       'SELECT id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
-      [email.trim(), phone.trim()]
+      [email.trim(), cleanPhone]
     );
     if (existingCheck.rows.length > 0) {
       await client.query('ROLLBACK');
@@ -77,7 +106,7 @@ router.post('/register', async (req, res) => {
       userId,
       name.trim(),
       email.trim().toLowerCase(),
-      phone.trim(),
+      cleanPhone,
       passwordHash,
       startingPoints,
       initialRole,
