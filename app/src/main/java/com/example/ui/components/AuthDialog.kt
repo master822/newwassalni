@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import androidx.activity.compose.BackHandler
+
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -56,6 +58,7 @@ fun AuthDialog(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var currentMode by remember { mutableStateOf(AuthMode.LOGIN) }
+
     var resetMethod by remember { mutableStateOf(ResetPasswordMethod.PHONE_SMS) }
 
     // Form fields
@@ -79,6 +82,24 @@ fun AuthDialog(
     var emailOtpSent by remember { mutableStateOf(false) }
     var isSendingOtp by remember { mutableStateOf(false) }
     var isSubmittingReset by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = !isMandatory || currentMode != AuthMode.LOGIN) {
+        when (currentMode) {
+            AuthMode.LOGIN -> {
+                if (!isMandatory) {
+                    onDismiss()
+                }
+            }
+            AuthMode.REGISTER,
+            AuthMode.PHONE_OTP,
+            AuthMode.RESET_PASSWORD -> {
+                currentMode = AuthMode.LOGIN
+                otpCode = ""
+                emailOtpSent = false
+                phoneOtpSent = false
+            }
+        }
+    }
 
     Dialog(onDismissRequest = { if (!isMandatory && isLoggedIn) onDismiss() }) {
         Surface(
@@ -509,7 +530,7 @@ fun AuthDialog(
                                 FilterChip(
                                     selected = resetMethod == ResetPasswordMethod.EMAIL_MAILGUN,
                                     onClick = { resetMethod = ResetPasswordMethod.EMAIL_MAILGUN },
-                                    label = { Text("📧 عبر البريد (Mailgun)", fontSize = 12.sp) },
+                                    label = { Text("📧 عبر البريد الإلكتروني", fontSize = 12.sp) },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -517,9 +538,9 @@ fun AuthDialog(
                             Spacer(modifier = Modifier.height(12.dp))
 
                             if (resetMethod == ResetPasswordMethod.EMAIL_MAILGUN) {
-                                // Mailgun Email Reset
+                                // Email Reset
                                 Text(
-                                    text = "أدخل بريدك الإلكتروني ليصلك رمز OTP لاستعادة كلمة المرور عبر Mailgun",
+                                    text = "أدخل بريدك الإلكتروني ليصلك رمز OTP لاستعادة كلمة المرور عبر البريد الإلكتروني",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -568,7 +589,7 @@ fun AuthDialog(
                                         if (isSendingOtp) {
                                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("جارٍ الإرسال عبر Mailgun...", color = Color.White)
+                                            Text("جارٍ إرسال رمز التحقق...", color = Color.White)
                                         } else {
                                             Icon(Icons.Filled.Send, contentDescription = null, tint = Color.White)
                                             Spacer(modifier = Modifier.width(6.dp))
