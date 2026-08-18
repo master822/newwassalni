@@ -44,7 +44,7 @@ fun AuthDialog(
     userPhone: String = "+963 988 123 456",
     userPoints: Int = 50,
     onLoginSuccess: (emailOrPhone: String, password: String) -> Unit,
-    onRegisterSuccess: (name: String, email: String, phone: String, password: String, referralCode: String?) -> Unit,
+    onRegisterSuccess: (name: String, email: String, phone: String, password: String, referralCode: String?, verifyToken: String?) -> Unit,
     onSendPhoneOtp: (suspend (phone: String) -> Pair<Boolean, String>)? = null,
     onVerifyPhoneOtp: (suspend (phone: String, otp: String) -> Pair<Boolean, String>)? = null,
     onResetPasswordPhone: (suspend (phone: String, otp: String, newPass: String) -> Pair<Boolean, String>)? = null,
@@ -435,10 +435,17 @@ fun AuthDialog(
                                         isVerifyingPhoneOtp = true
                                         coroutineScope.launch {
                                             val verifyRes = onVerifyPhoneOtp?.invoke(phone.trim(), otpCode.trim())
-                                                ?: Pair(true, "تم التحقق بنجاح")
+                                                ?: Pair(false, "فشل التحقق من رقم الهاتف")
                                             isVerifyingPhoneOtp = false
                                             if (verifyRes.first) {
-                                                onRegisterSuccess(fullName.trim(), email.trim(), phone.trim(), password, referralCodeInput.trim().ifBlank { null })
+                                                onRegisterSuccess(
+                                                    fullName.trim(),
+                                                    email.trim(),
+                                                    phone.trim(),
+                                                    password,
+                                                    referralCodeInput.trim().ifBlank { null },
+                                                    verifyRes.second
+                                                )
                                             } else {
                                                 Toast.makeText(context, verifyRes.second, Toast.LENGTH_LONG).show()
                                             }

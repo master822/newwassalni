@@ -344,9 +344,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         email: String,
         phone: String,
         pass: String,
-        referralCode: String?
+        referralCode: String?,
+        verifyToken: String? = null
     ): Pair<Boolean, String> {
-        val result = repository.register(name, email, phone, pass, referralCode)
+        val result = repository.register(
+            name,
+            email,
+            phone,
+            pass,
+            referralCode,
+            verifyToken
+        )
         return if (result.isSuccess) {
             val user = result.getOrNull()
             activeUserId.value = user?.id ?: "user_default"
@@ -380,7 +388,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun verifyPhoneOtp(phone: String, otp: String): Pair<Boolean, String> {
         val result = repository.verifyOtp(phone, otp)
         return if (result.isSuccess) {
-            Pair(true, "تم التحقق من رقم الهاتف بنجاح")
+            Pair(true, result.getOrNull() ?: "")
         } else {
             Pair(false, result.exceptionOrNull()?.message ?: "رمز التحقق غير صحيح أو منتهي الصلاحية")
         }
