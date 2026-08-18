@@ -23,29 +23,30 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Create .env if missing
+        run: |
+          if [ ! -f .env ]; then
+            cp .env.example .env 2>/dev/null || echo "" > .env
+          fi
 
       - name: Decode Keystore (if secret present)
         if: "${{ secrets.KEYSTORE_BASE64 != '' }}"
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
 
-      - name: Build Android App Bundle (AAB for Google Play)
+      - name: Build Android App Bundle & APK
         env:
           KEYSTORE_PATH: "my-upload-key.jks"
           STORE_PASSWORD: "${{ secrets.STORE_PASSWORD }}"
           KEY_ALIAS: "${{ secrets.KEY_ALIAS }}"
           KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
-        run: gradle bundleRelease --stacktrace
-
-      - name: Build Universal APK
-        env:
-          KEYSTORE_PATH: "my-upload-key.jks"
-          STORE_PASSWORD: "${{ secrets.STORE_PASSWORD }}"
-          KEY_ALIAS: "${{ secrets.KEY_ALIAS }}"
-          KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
-        run: gradle assembleRelease --stacktrace
+        run: |
+          gradle assembleDebug bundleRelease assembleRelease --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload Release AAB Artifact
         uses: actions/upload-artifact@v4
@@ -61,13 +62,10 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: ignore
 
-      - name: Upload Debug APK (Fallback)
-        if: failure()
-        run: gradle assembleDebug --stacktrace
-
       - name: Upload Debug APK Artifact
-        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: Wasalni-Debug-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
+
