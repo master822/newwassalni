@@ -64,14 +64,14 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      buildConfigField("String", "BASE_URL", "\"https://api.wassalni.sy/\"")
+      buildConfigField("String", "BASE_URL", "\"https://newwassalni-hm49.onrender.com/\"")
       val relConfig = signingConfigs.findByName("release")
       if (relConfig != null) {
         signingConfig = relConfig
       }
     }
     debug {
-      buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:3000/\"")
+      buildConfigField("String", "BASE_URL", "\"https://newwassalni-hm49.onrender.com/\"")
       val dbgConfig = signingConfigs.findByName("debugConfig")
       if (dbgConfig != null) {
         signingConfig = dbgConfig
