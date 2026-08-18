@@ -65,6 +65,62 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// TEMPORARY MSGPlus connectivity diagnostic
+app.get('/health/msgplus', async (req, res) => {
+  const https = require('https');
+
+  const startedAt = Date.now();
+
+  const result = await new Promise((resolve) => {
+    const req = https.get(
+      'https://sms.msgplus.tech/api/ping',
+      {
+        timeout: 8000,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Wassalni-Backend-Diagnostic/1.0',
+        },
+      },
+      (response) => {
+        let body = '';
+
+        response.on('data', chunk => {
+          body += chunk;
+        });
+
+        response.on('end', () => {
+          resolve({
+            success: true,
+            statusCode: response.statusCode,
+            body: body.slice(0, 1000),
+          });
+        });
+      }
+    );
+
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({
+        success: false,
+        error: 'TIMEOUT',
+      });
+    });
+
+    req.on('error', (err) => {
+      resolve({
+        success: false,
+        error: err.code || err.message,
+      });
+    });
+  });
+
+  res.status(result.success ? 200 : 502).json({
+    service: 'msgPlus',
+    elapsedMs: Date.now() - startedAt,
+    ...result,
+  });
+});
+
 // App Routes
 
 app.use('/api/auth', authRoutes);
