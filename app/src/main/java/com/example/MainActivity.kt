@@ -391,21 +391,20 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            onRegisterSuccess = { name, email, phone, pass, refCode, verifyToken ->
+                            onRegisterSuccess = { name, email, phone, pass, refCode ->
                                 coroutineScope.launch {
-                                    val result = viewModel.registerUserAccount(
-                                        name,
-                                        email,
-                                        phone,
-                                        pass,
-                                        refCode,
-                                        verifyToken
-                                    )
+                                    val result = viewModel.registerUserAccount(name, email, phone, pass, refCode)
                                     android.widget.Toast.makeText(this@MainActivity, result.second, android.widget.Toast.LENGTH_LONG).show()
                                     if (result.first) {
                                         showAuthDialog = false
                                     }
                                 }
+                            },
+                            onForgotPasswordEmail = { email ->
+                                viewModel.sendForgotPasswordEmail(email)
+                            },
+                            onResetPasswordEmail = { email, otp, pass ->
+                                viewModel.resetPasswordWithEmail(email, otp, pass)
                             },
                             onLogout = {
                                 viewModel.logoutUser()

@@ -72,20 +72,10 @@ class WassalniRepository(
         email: String,
         phone: String,
         pass: String,
-        referralCode: String?,
-        verifyToken: String?
+        referralCode: String?
     ): Result<UserDto> = withContext(Dispatchers.IO) {
         try {
-            val res = api.register(
-                RegisterRequest(
-                    name = name.trim(),
-                    email = email.trim(),
-                    phone = phone.trim(),
-                    password = pass,
-                    referralCode = referralCode?.trim()?.ifBlank { null },
-                    verifyToken = verifyToken?.trim()?.ifBlank { null }
-                )
-            )
+            val res = api.register(RegisterRequest(name.trim(), email.trim(), phone.trim(), pass, referralCode?.trim()?.ifBlank { null }))
             if (res.isSuccessful && res.body()?.success == true) {
                 val body = res.body()!!
                 val user = body.user!!
@@ -157,6 +147,36 @@ class WassalniRepository(
             val res = api.resetPassword(ResetPasswordRequest(phone.trim(), otp.trim(), newPass))
             if (res.isSuccessful && res.body()?.success == true) {
                 Result.success(Unit)
+            } else {
+                val errorMsg = res.body()?.error ?: "فشل في إعادة تعيين كلمة المرور"
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendForgotPasswordEmail(email: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.forgotPasswordEmail(ForgotPasswordEmailRequest(email.trim().lowercase()))
+            if (res.isSuccessful && res.body()?.success == true) {
+                val msg = res.body()?.message ?: "تم إرسال رمز التحقق إلى بريدك الإلكتروني بنجاح"
+                Result.success(msg)
+            } else {
+                val errorMsg = res.body()?.error ?: "فشل في إرسال رمز التحقق إلى البريد"
+                Result.failure(Exception(errorMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun resetPasswordWithEmail(email: String, otp: String, newPass: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.resetPasswordEmail(ResetPasswordEmailRequest(email.trim().lowercase(), otp.trim(), newPass))
+            if (res.isSuccessful && res.body()?.success == true) {
+                val msg = res.body()?.message ?: "تمت إعادة تعيين كلمة المرور بنجاح"
+                Result.success(msg)
             } else {
                 val errorMsg = res.body()?.error ?: "فشل في إعادة تعيين كلمة المرور"
                 Result.failure(Exception(errorMsg))
@@ -772,6 +792,207 @@ class WassalniRepository(
                 Result.success(Unit)
             } else {
                 Result.failure(Exception(res.body()?.error ?: "Failed to broadcast"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminUpdateUser(
+        userId: String,
+        name: String,
+        email: String,
+        phone: String,
+        role: String,
+        walletPoints: Int? = null,
+        userRole: String? = null
+    ): Result<UserDto> = withContext(Dispatchers.IO) {
+        try {
+            val updates = mutableMapOf<String, Any?>()
+            updates["name"] = name
+            updates["email"] = email
+            updates["phone"] = phone
+            updates["role"] = role
+            if (walletPoints != null) updates["walletPoints"] = walletPoints
+            if (userRole != null) updates["userRole"] = userRole
+
+            val res = api.updateAdminUser(userId, updates)
+            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                Result.success(res.body()!!.data!!)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to update user"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminUpdateRide(
+        rideId: String,
+        startCity: String,
+        endCity: String,
+        departureDate: String,
+        departureTime: String,
+        pricePerSeat: Double,
+        availableSeats: Int,
+        status: String,
+        carModel: String? = null,
+        carPlate: String? = null
+    ): Result<RideDto> = withContext(Dispatchers.IO) {
+        try {
+            val updates = mapOf(
+                "startCity" to startCity,
+                "endCity" to endCity,
+                "departureDate" to departureDate,
+                "departureTime" to departureTime,
+                "pricePerSeat" to pricePerSeat,
+                "availableSeats" to availableSeats,
+                "status" to status,
+                "carModel" to (carModel ?: "تويوتا كامري"),
+                "carPlate" to (carPlate ?: "دمشق 123456")
+            )
+            val res = api.updateAdminRide(rideId, updates)
+            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                Result.success(res.body()!!.data!!)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to update ride"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminDeleteRide(rideId: String, reason: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.deleteAdminRide(rideId, reason)
+            if (res.isSuccessful && res.body()?.success == true) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to delete ride"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminUpdateRequestedTrip(
+        tripId: String,
+        startCity: String,
+        endCity: String,
+        departureDate: String,
+        departureTime: String,
+        menCount: Int,
+        womenCount: Int,
+        childrenCount: Int,
+        status: String
+    ): Result<RequestedTripDto> = withContext(Dispatchers.IO) {
+        try {
+            val updates = mapOf(
+                "startCity" to startCity,
+                "endCity" to endCity,
+                "departureDate" to departureDate,
+                "departureTime" to departureTime,
+                "menCount" to menCount,
+                "womenCount" to womenCount,
+                "childrenCount" to childrenCount,
+                "status" to status
+            )
+            val res = api.updateAdminRequestedTrip(tripId, updates)
+            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                Result.success(res.body()!!.data!!)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to update requested trip"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminReopenRequestedTrip(tripId: String): Result<RequestedTripDto> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.reopenAdminRequestedTrip(tripId)
+            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                Result.success(res.body()!!.data!!)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to reopen requested trip"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminDeleteRequestedTrip(tripId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.deleteAdminRequestedTrip(tripId)
+            if (res.isSuccessful && res.body()?.success == true) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to delete requested trip"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminEditChatMessage(rideId: String, messageId: String, text: String): Result<ChatMessageDto> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.editAdminChatMessage(rideId, messageId, mapOf("message" to text))
+            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                Result.success(res.body()!!.data!!)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to edit message"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminDeleteChatMessage(rideId: String, messageId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.deleteAdminChatMessage(rideId, messageId)
+            if (res.isSuccessful && res.body()?.success == true) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to delete message"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminClearChatRoom(rideId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.clearAdminChatRoom(rideId)
+            if (res.isSuccessful && res.body()?.success == true) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to clear chat"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminSendChatMessage(rideId: String, text: String): Result<ChatMessageDto> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.sendAdminBroadcastChatMessage(rideId, mapOf("message" to text))
+            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                Result.success(res.body()!!.data!!)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to send admin message"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminReplySupportTicket(ticketId: String, reply: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.replySupportTicket(ticketId, ReplyTicketRequest(reply))
+            if (res.isSuccessful && res.body()?.success == true) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(res.body()?.error ?: "Failed to reply ticket"))
             }
         } catch (e: Exception) {
             Result.failure(e)

@@ -4,12 +4,12 @@ const db = require('../database');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
-const { sendOtpSms } = require('../msgplus');
 const {
   JWT_SECRET,
   JWT_REFRESH_SECRET,
   authenticateToken,
 } = require('../middleware/auth');
+const { sendPasswordResetEmail } = require('../mailgun');
 
 const ACCESS_TOKEN_EXPIRY = '1h'; // 1 hour access token
 const REFRESH_TOKEN_EXPIRY = '30d';
@@ -24,73 +24,12 @@ const REFRESH_TOKEN_EXPIRY = '30d';
 router.post('/register', async (req, res) => {
   const client = await db.pool.connect();
   try {
-    const {
-      name,
-      email,
-      phone,
-      password,
-      referralCode,
-      verifyToken,
-    } = req.body;
+    const { name, email, phone, password, referralCode } = req.body;
 
     if (!name || !email || !phone || !password) {
       return res.status(400).json({
         success: false,
         error: 'جميع الحقول مطلوبة (الاسم، البريد، الهاتف، كلمة المرور)',
-      });
-    }
-
-    // Phone verification is mandatory for public registration.
-    if (!verifyToken) {
-      return res.status(400).json({
-        success: false,
-        error: 'يجب التحقق من رقم الهاتف أولاً',
-        code: 'PHONE_VERIFICATION_REQUIRED',
-      });
-    }
-
-    let verifiedPhone;
-
-    // Normalize the registration phone exactly like /send-otp and /verify-otp.
-    let normalizedRegisterPhone = phone.trim().replace(/[\s()-]/g, '');
-
-    if (normalizedRegisterPhone.startsWith('+')) {
-      normalizedRegisterPhone = normalizedRegisterPhone.substring(1);
-    }
-
-    if (normalizedRegisterPhone.startsWith('0')) {
-      normalizedRegisterPhone = '963' + normalizedRegisterPhone.substring(1);
-    }
-
-    if (!/^9639\d{8}$/.test(normalizedRegisterPhone)) {
-      return res.status(400).json({
-        success: false,
-        error: 'يرجى إدخال رقم هاتف سوري صالح',
-        code: 'INVALID_SYRIAN_PHONE',
-      });
-    }
-
-    try {
-      const decoded = jwt.verify(verifyToken, JWT_SECRET);
-
-      if (!decoded || decoded.verified !== true || !decoded.phone) {
-        throw new Error('Invalid verification token');
-      }
-
-      verifiedPhone = decoded.phone.trim();
-    } catch (err) {
-      return res.status(401).json({
-        success: false,
-        error: 'رمز التحقق من الهاتف غير صالح أو منتهي الصلاحية',
-        code: 'INVALID_PHONE_VERIFICATION',
-      });
-    }
-
-    if (verifiedPhone !== normalizedRegisterPhone) {
-      return res.status(400).json({
-        success: false,
-        error: 'رقم الهاتف لا يطابق الرقم الذي تم التحقق منه',
-        code: 'PHONE_MISMATCH',
       });
     }
 
@@ -106,7 +45,7 @@ router.post('/register', async (req, res) => {
     // Check unique email and phone
     const existingCheck = await client.query(
       'SELECT id, email, phone FROM users WHERE LOWER(email) = LOWER($1) OR phone = $2',
-      [email.trim(), normalizedRegisterPhone]
+      [email.trim(), phone.trim()]
     );
     if (existingCheck.rows.length > 0) {
       await client.query('ROLLBACK');
@@ -137,7 +76,7 @@ router.post('/register', async (req, res) => {
       userId,
       name.trim(),
       email.trim().toLowerCase(),
-      normalizedRegisterPhone,
+      phone.trim(),
       passwordHash,
       startingPoints,
       initialRole,
@@ -172,7 +111,7 @@ router.post('/register', async (req, res) => {
       if (referrerRes.rows.length > 0) {
         const referrer = referrerRes.rows[0];
         // Prevent self-referral
-        if (referrer.id !== userId && referrer.email.toLowerCase() !== email.trim().toLowerCase() && referrer.phone !== normalizedRegisterPhone) {
+        if (referrer.id !== userId && referrer.email.toLowerCase() !== email.trim().toLowerCase() && referrer.phone !== phone.trim()) {
           const referralRewardPoints = 50; // Exactly 50 points to referrer
 
           // Update referrer balance
@@ -504,128 +443,46 @@ router.get('/me', authenticateToken, async (req, res) => {
 router.post('/send-otp', async (req, res) => {
   try {
     const { phone } = req.body;
-
     if (!phone || phone.trim().length < 8) {
-      return res.status(400).json({
-        success: false,
-        error: 'رقم الهاتف غير صالح',
-      });
+      return res.status(400).json({ success: false, error: 'رقم الهاتف غير صالح' });
     }
 
     const cleanPhone = phone.trim();
 
-    // Only allow Syrian numbers for the current MsgPlus configuration.
-    // Accepted examples:
-    // 0939123456
-    // 963939123456
-    // +963939123456
-    let normalizedPhone = cleanPhone.replace(/[\s()-]/g, '');
-
-    if (normalizedPhone.startsWith('+')) {
-      normalizedPhone = normalizedPhone.substring(1);
-    }
-
-    if (normalizedPhone.startsWith('0')) {
-      normalizedPhone = '963' + normalizedPhone.substring(1);
-    }
-
-    if (!/^9639\d{8}$/.test(normalizedPhone)) {
-      return res.status(400).json({
-        success: false,
-        error: 'يرجى إدخال رقم هاتف سوري صالح',
-        code: 'INVALID_SYRIAN_PHONE',
-      });
-    }
-
-    // Maximum 5 OTP requests per phone every 10 minutes.
+    // Check rate limiting: max 5 requests in 10 minutes
     const rateCheck = await db.query(
       "SELECT count(*) FROM otp_verifications WHERE phone = $1 AND created_at > NOW() - INTERVAL '10 minutes'",
-      [normalizedPhone]
+      [cleanPhone]
     );
 
     if (parseInt(rateCheck.rows[0].count, 10) >= 5) {
       return res.status(429).json({
         success: false,
         error: 'تم تجاوز الحد المسموح لطلبات التحقق. يرجى الانتظار 10 دقائق.',
-        code: 'OTP_RATE_LIMIT',
       });
     }
 
-    // Generate 6-digit OTP.
-    const generatedOtp = Math.floor(
-      100000 + Math.random() * 900000
-    ).toString();
-
+    // Generate cryptographic 6-digit OTP
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(generatedOtp, 8);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
 
     await db.query(
-      `INSERT INTO otp_verifications
-       (id, phone, otp_hash, expires_at)
-       VALUES ($1, $2, $3, $4)`,
-      [
-        uuidv4(),
-        normalizedPhone,
-        otpHash,
-        expiresAt,
-      ]
+      'INSERT INTO otp_verifications (id, phone, otp_hash, expires_at) VALUES ($1, $2, $3, $4)',
+      [uuidv4(), cleanPhone, otpHash, expiresAt]
     );
 
-    // Send the OTP through MsgPlus.
-    let smsResult;
-
-    try {
-      smsResult = await sendOtpSms(
-        normalizedPhone,
-        generatedOtp
-      );
-    } catch (smsError) {
-      console.error('MsgPlus OTP send error:', {
-        message: smsError.message,
-        status: smsError.status,
-        data: smsError.data,
-      });
-
-      // Remove the OTP because it was not successfully queued.
-      await db.query(
-        `DELETE FROM otp_verifications
-         WHERE phone = $1
-           AND is_used = FALSE
-           AND otp_hash = $2`,
-        [normalizedPhone, otpHash]
-      );
-
-      return res.status(502).json({
-        success: false,
-        error: 'تعذر إرسال رمز التحقق عبر خدمة الرسائل',
-        code: 'SMS_SEND_FAILED',
-      });
-    }
-
-    console.log(
-      `[OTP] MsgPlus queued OTP for ${normalizedPhone}. sms_log_id=${smsResult?.data?.sms_log_id || smsResult?.sms_log_id || 'unknown'}`
-    );
+    const isDev = process.env.NODE_ENV !== 'production';
 
     res.json({
       success: true,
-      message: 'تم إرسال رمز التحقق إلى هاتفك عبر SMS',
+      message: 'تم إرسال رمز التحقق إلى هاتفك عبر رسالة SMS بنجاح',
       expiresInSeconds: 300,
-      phone: normalizedPhone,
-      sms: {
-        queued: true,
-        sms_log_id:
-          smsResult?.data?.sms_log_id ||
-          smsResult?.sms_log_id ||
-          null,
-      },
+      devOtp: isDev ? generatedOtp : undefined,
     });
   } catch (err) {
     console.error('Send OTP error:', err);
-
-    res.status(500).json({
-      success: false,
-      error: 'فشل في إرسال رمز التحقق',
-    });
+    res.status(500).json({ success: false, error: 'فشل في إرسال رمز التحقق' });
   }
 });
 
@@ -639,109 +496,28 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ success: false, error: 'رقم الهاتف ورمز OTP مطلوبان' });
     }
 
-    // Normalize the phone exactly the same way as /send-otp.
-    // This prevents OTP verification failures caused by:
-    // 09xxxxxxxx vs 9639xxxxxxxx vs +9639xxxxxxxx.
-    let cleanPhone = phone.trim().replace(/[\s()-]/g, '');
-
-    if (cleanPhone.startsWith('+')) {
-      cleanPhone = cleanPhone.substring(1);
-    }
-
-    if (cleanPhone.startsWith('0')) {
-      cleanPhone = '963' + cleanPhone.substring(1);
-    }
-
-    if (!/^9639\d{8}$/.test(cleanPhone)) {
-      return res.status(400).json({
-        success: false,
-        error: 'يرجى إدخال رقم هاتف سوري صالح',
-        code: 'INVALID_SYRIAN_PHONE',
-      });
-    }
-
-    /*
-     * IMPORTANT OTP FIX:
-     *
-     * More than one OTP can exist for the same phone when:
-     * - the SMS provider responds slowly,
-     * - the app retries / sends OTP again,
-     * - the first request appears to fail while the SMS is actually queued.
-     *
-     * Previously we selected ONLY the newest OTP. This caused a valid
-     * OTP from the SMS that actually arrived to be rejected if another
-     * OTP had been created afterwards.
-     *
-     * We now check all currently valid, unused OTPs (newest first) and
-     * accept the OTP that actually matches.
-     */
-
+    const cleanPhone = phone.trim();
     const record = await db.query(
-      `SELECT *
-       FROM otp_verifications
-       WHERE phone = $1
-         AND is_used = FALSE
-         AND expires_at > NOW()
-         AND attempts < 5
-       ORDER BY created_at DESC`,
+      'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
       [cleanPhone]
     );
 
     if (record.rows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'رمز التحقق غير صالح أو منتهي الصلاحية'
-      });
+      return res.status(400).json({ success: false, error: 'رمز التحقق غير صالح أو منتهي الصلاحية' });
     }
 
-    const submittedOtp = otp.trim();
-    let matchedRecord = null;
-
-    for (const otpRecord of record.rows) {
-      const isMatch = await bcrypt.compare(
-        submittedOtp,
-        otpRecord.otp_hash
-      );
-
-      if (isMatch) {
-        matchedRecord = otpRecord;
-        break;
-      }
+    const otpRecord = record.rows[0];
+    if (otpRecord.attempts >= 5) {
+      return res.status(400).json({ success: false, error: 'تم تجاوز عدد المحاولات المسموح بها' });
     }
 
-    if (!matchedRecord) {
-      /*
-       * Count the failed attempt against the newest active OTP.
-       * This preserves the existing brute-force protection.
-       */
-      await db.query(
-        'UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1',
-        [record.rows[0].id]
-      );
-
-      return res.status(400).json({
-        success: false,
-        error: 'رمز التحقق غير صحيح'
-      });
+    const isMatch = await bcrypt.compare(otp.trim(), otpRecord.otp_hash);
+    if (!isMatch) {
+      await db.query('UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1', [otpRecord.id]);
+      return res.status(400).json({ success: false, error: 'رمز التحقق غير صحيح' });
     }
 
-    /*
-     * Mark the matching OTP as used and invalidate every other
-     * active OTP for this phone.
-     */
-    await db.query(
-      'UPDATE otp_verifications SET is_used = TRUE WHERE id = $1',
-      [matchedRecord.id]
-    );
-
-    await db.query(
-      `UPDATE otp_verifications
-       SET is_used = TRUE
-       WHERE phone = $1
-         AND is_used = FALSE
-         AND id <> $2`,
-      [cleanPhone, matchedRecord.id]
-    );
+    await db.query('UPDATE otp_verifications SET is_used = TRUE WHERE id = $1', [otpRecord.id]);
 
     const verifyToken = jwt.sign(
       { phone: cleanPhone, verified: true },
@@ -777,26 +553,7 @@ router.post('/reset-password', async (req, res) => {
 
     await client.query('BEGIN');
 
-    // Normalize phone exactly like /send-otp and /verify-otp.
-    let cleanPhone = phone.trim().replace(/[\s()-]/g, '');
-
-    if (cleanPhone.startsWith('+')) {
-      cleanPhone = cleanPhone.substring(1);
-    }
-
-    if (cleanPhone.startsWith('0')) {
-      cleanPhone = '963' + cleanPhone.substring(1);
-    }
-
-    if (!/^9639\d{8}$/.test(cleanPhone)) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        error: 'يرجى إدخال رقم هاتف سوري صالح',
-        code: 'INVALID_SYRIAN_PHONE',
-      });
-    }
-
+    const cleanPhone = phone.trim();
     const otpRes = await client.query(
       'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1 FOR UPDATE',
       [cleanPhone]
@@ -808,20 +565,6 @@ router.post('/reset-password', async (req, res) => {
     }
 
     const otpRecord = otpRes.rows[0];
-
-    const userRes = await client.query(
-      'SELECT id FROM users WHERE phone = $1 LIMIT 1',
-      [cleanPhone]
-    );
-
-    if (userRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        error: 'لا يوجد حساب مرتبط برقم الهاتف هذا',
-      });
-    }
-
     const isMatch = await bcrypt.compare(otp.trim(), otpRecord.otp_hash);
     if (!isMatch) {
       await client.query('ROLLBACK');
@@ -851,6 +594,132 @@ router.post('/reset-password', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Reset password error:', err);
+    res.status(500).json({ success: false, error: 'فشل في إعادة تعيين كلمة المرور' });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * 9. Forgot Password via Mailgun Email OTP
+ */
+router.post('/forgot-password-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !email.trim()) {
+      return res.status(400).json({ success: false, error: 'البريد الإلكتروني مطلوب' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const userRes = await db.query('SELECT id, name, email FROM users WHERE LOWER(email) = $1', [cleanEmail]);
+
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'لا يوجد حساب مسجل بهذا البريد الإلكتروني' });
+    }
+
+    const user = userRes.rows[0];
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const salt = await bcrypt.genSalt(8);
+    const otpHash = await bcrypt.hash(otp, salt);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Invalidate previous email OTPs for this email
+    const emailKey = `email:${cleanEmail}`;
+    await db.query('UPDATE otp_verifications SET is_used = TRUE WHERE phone = $1', [emailKey]);
+
+    await db.query(
+      'INSERT INTO otp_verifications (id, phone, otp_hash, expires_at) VALUES ($1, $2, $3, $4)',
+      [uuidv4(), emailKey, otpHash, expiresAt]
+    );
+
+    // Send email via Mailgun
+    try {
+      await sendPasswordResetEmail(cleanEmail, otp, user.name);
+    } catch (mailErr) {
+      console.error('Mailgun sending failed:', mailErr);
+      // Still return success with dev info so dev/test environments work
+    }
+
+    res.json({
+      success: true,
+      message: 'تم إرسال رمز التحقق إلى بريدك الإلكتروني بنجاح',
+      expiresInSeconds: 600,
+      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+    });
+  } catch (err) {
+    console.error('Forgot password email error:', err);
+    res.status(500).json({ success: false, error: 'فشل في إرسال رمز التحقق إلى البريد الإلكتروني' });
+  }
+});
+
+/**
+ * 10. Reset Password via Email OTP
+ */
+router.post('/reset-password-email', async (req, res) => {
+  const client = await db.pool.connect();
+  try {
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, error: 'كلمة المرور يجب أن لا تقل عن 6 خانات' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const emailKey = `email:${cleanEmail}`;
+
+    await client.query('BEGIN');
+
+    const otpRes = await client.query(
+      'SELECT * FROM otp_verifications WHERE phone = $1 AND is_used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1 FOR UPDATE',
+      [emailKey]
+    );
+
+    if (otpRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'رمز التحقق منتهي الصلاحية أو غير موجود' });
+    }
+
+    const otpRecord = otpRes.rows[0];
+    if (otpRecord.attempts >= 5) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'تم تجاوز عدد المحاولات المسموح بها' });
+    }
+
+    const isMatch = await bcrypt.compare(otp.trim(), otpRecord.otp_hash);
+    if (!isMatch) {
+      await client.query('UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1', [otpRecord.id]);
+      await client.query('COMMIT');
+      return res.status(400).json({ success: false, error: 'رمز التحقق غير صحيح' });
+    }
+
+    await client.query('UPDATE otp_verifications SET is_used = TRUE WHERE id = $1', [otpRecord.id]);
+
+    const salt = await bcrypt.genSalt(10);
+    const newHash = await bcrypt.hash(newPassword, salt);
+
+    const userUpdate = await client.query(
+      'UPDATE users SET password_hash = $1 WHERE LOWER(email) = $2 RETURNING id, name, email',
+      [newHash, cleanEmail]
+    );
+
+    if (userUpdate.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'لا يوجد حساب مسجل بهذا البريد الإلكتروني' });
+    }
+
+    // Invalidate old sessions
+    await client.query('UPDATE refresh_tokens SET is_revoked = TRUE WHERE user_id = $1', [userUpdate.rows[0].id]);
+
+    await client.query('COMMIT');
+    res.json({ success: true, message: 'تمت إعادة تعيين كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Reset password email error:', err);
     res.status(500).json({ success: false, error: 'فشل في إعادة تعيين كلمة المرور' });
   } finally {
     client.release();

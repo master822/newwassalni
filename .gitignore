@@ -21,4 +21,3 @@ backend/.env
 *.p12
 keystore.properties
 debug.keystore
-backend/node_modules/

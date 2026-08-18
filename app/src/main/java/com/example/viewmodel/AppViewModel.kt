@@ -344,17 +344,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         email: String,
         phone: String,
         pass: String,
-        referralCode: String?,
-        verifyToken: String?
+        referralCode: String?
     ): Pair<Boolean, String> {
-        val result = repository.register(
-            name,
-            email,
-            phone,
-            pass,
-            referralCode,
-            verifyToken
-        )
+        val result = repository.register(name, email, phone, pass, referralCode)
         return if (result.isSuccess) {
             val user = result.getOrNull()
             activeUserId.value = user?.id ?: "user_default"
@@ -374,6 +366,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _isAdminLoggedIn.value = false
         activeUserId.value = "user_default"
         _currentScreen.value = "search"
+    }
+
+    suspend fun sendForgotPasswordEmail(email: String): Pair<Boolean, String> {
+        val result = repository.sendForgotPasswordEmail(email)
+        return if (result.isSuccess) {
+            Pair(true, result.getOrNull() ?: "تم إرسال رمز التحقق بنجاح")
+        } else {
+            Pair(false, result.exceptionOrNull()?.message ?: "فشل في إرسال رمز التحقق")
+        }
+    }
+
+    suspend fun resetPasswordWithEmail(email: String, otp: String, newPass: String): Pair<Boolean, String> {
+        val result = repository.resetPasswordWithEmail(email, otp, newPass)
+        return if (result.isSuccess) {
+            Pair(true, result.getOrNull() ?: "تمت إعادة تعيين كلمة المرور بنجاح")
+        } else {
+            Pair(false, result.exceptionOrNull()?.message ?: "فشل في إعادة تعيين كلمة المرور")
+        }
     }
 
     fun logoutAdmin() {
@@ -554,7 +564,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteRequestedTrip(requestId: String) {
         viewModelScope.launch {
+            dao.deleteRequestedTrip(requestId)
+            dao.deleteRide("ride_from_req_$requestId")
             repository.deleteRequestedTrip(requestId)
+            addAdminActivityLog("حذف طلب رحلة", "تم حذف الطلب $requestId")
         }
     }
 
@@ -664,6 +677,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun adminUpdateUserData(userId: String, name: String, phone: String, role: String, points: Int) {
         viewModelScope.launch {
             dao.updateUserData(userId, name, phone, role, points)
+            repository.adminUpdateUser(userId, name, "", phone, role, points)
             addAdminActivityLog("تعديل بيانات مستخدم", "تم تعديل بيانات المستخدم $name ($userId)")
         }
     }
@@ -674,7 +688,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 id = UUID.randomUUID().toString(),
                 userId = userId,
                 title = "🔒 إعادة تعيين كلمة المرور",
-                message = "تم طلب إعادة تعيين كلمة المرور الخاصة بحسابك من قبل مدير النظام. يرجى استخدام آلية استعادة كلمة المرور الآمنة.",
+                message = "تمت إعادة تعيين كلمة المرور الخاصة بك إلى (123456) من قبل مدير النظام.",
                 type = NotificationType.SYSTEM.name
             )
             dao.insertNotification(notif)
@@ -692,6 +706,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun adminEditRide(rideId: String, start: String, end: String, date: String, time: String, price: Double, seats: Int) {
         viewModelScope.launch {
             dao.updateRideDetails(rideId, start, end, date, time, price, seats)
+            repository.adminUpdateRide(
+                rideId = rideId,
+                startCity = start,
+                endCity = end,
+                departureDate = date,
+                departureTime = time,
+                pricePerSeat = price,
+                availableSeats = seats,
+                status = "UPCOMING"
+            )
             addAdminActivityLog("تعديل تفاصيل رحلة", "تم تعديل الرحلة $rideId ($start ➔ $end)")
         }
     }
@@ -699,6 +723,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun adminDeleteRide(rideId: String) {
         viewModelScope.launch {
             dao.deleteRide(rideId)
+            repository.adminDeleteRide(rideId, "حذف إداري نهائي")
             addAdminActivityLog("حذف رحلة نهائياً", "تم حذف الرحلة $rideId من قاعدة البيانات")
         }
     }
@@ -706,6 +731,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun cancelRideByAdmin(rideId: String, reason: String) {
         viewModelScope.launch {
             dao.updateRideStatus(rideId, RideStatus.CANCELLED.name)
+            repository.adminDeleteRide(rideId, reason)
             val ride = dao.getRideById(rideId)
             if (ride != null) {
                 val notif = NotificationEntity(
@@ -724,6 +750,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun adminEditRequestedTrip(requestId: String, start: String, end: String, date: String, time: String, men: Int, women: Int, children: Int) {
         viewModelScope.launch {
             dao.updateRequestedTripDetails(requestId, start, end, date, time, men, women, children)
+            repository.adminUpdateRequestedTrip(
+                tripId = requestId,
+                startCity = start,
+                endCity = end,
+                departureDate = date,
+                departureTime = time,
+                menCount = men,
+                womenCount = women,
+                childrenCount = children,
+                status = "OPEN"
+            )
             addAdminActivityLog("تعديل طلب رحلة", "تم تعديل الطلب $requestId ($start ➔ $end)")
         }
     }
@@ -732,6 +769,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             dao.updateRequestedTripStatus(requestId, "OPEN", null, null)
             dao.deleteRide("ride_from_req_$requestId")
+            repository.adminReopenRequestedTrip(requestId)
             addAdminActivityLog("إعادة فتح طلب رحلة", "تمت إعادة فتح الطلب $requestId")
         }
     }
@@ -768,16 +806,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun editChatMessage(messageId: String, newText: String) {
+    fun editChatMessage(rideId: String, messageId: String, newText: String) {
         viewModelScope.launch {
             dao.updateChatMessageText(messageId, newText)
+            repository.adminEditChatMessage(rideId, messageId, newText)
             addAdminActivityLog("تعديل رسالة محادثة", "تم تعديل نص الرسالة $messageId")
         }
     }
 
-    fun deleteChatMessage(messageId: String) {
+    fun deleteChatMessage(rideId: String, messageId: String) {
         viewModelScope.launch {
             dao.deleteChatMessage(messageId)
+            repository.adminDeleteChatMessage(rideId, messageId)
             addAdminActivityLog("حذف رسالة محادثة", "تم حذف الرسالة $messageId")
         }
     }
@@ -785,6 +825,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteChatRoom(rideId: String) {
         viewModelScope.launch {
             dao.deleteChatMessagesForRide(rideId)
+            repository.adminClearChatRoom(rideId)
             addAdminActivityLog("تفريغ محادثة رحلة", "تم حذف جميع رسائل الرحلة $rideId")
         }
     }
@@ -809,6 +850,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 isPaymentReminder = false
             )
             dao.insertChatMessage(msg)
+            repository.adminSendChatMessage(rideId, messageText)
             addAdminActivityLog("إرسال رسالة كأدمن", "إرسال رسالة للرحلة $rideId")
         }
     }
@@ -821,6 +863,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             repository.adminBroadcast(title, message, targetAudience)
+            // Also insert local notification for current user so it's instantly visible
+            val notif = NotificationEntity(
+                id = UUID.randomUUID().toString(),
+                userId = currentUserId,
+                title = title,
+                message = message,
+                type = NotificationType.SYSTEM.name
+            )
+            dao.insertNotification(notif)
             addAdminActivityLog("إرسال إشعار جماعي", "العنوان: $title | الفئة: $targetAudience")
         }
     }

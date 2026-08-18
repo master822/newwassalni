@@ -76,7 +76,7 @@ router.get('/users', async (req, res) => {
 router.put('/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, role, isVerified, userRole } = req.body;
+    const { name, email, phone, role, isVerified, userRole, walletPoints } = req.body;
 
     const query = `
       UPDATE users
@@ -86,8 +86,9 @@ router.put('/users/:id', async (req, res) => {
           role = COALESCE($4, role),
           is_verified = COALESCE($5, is_verified),
           user_role = COALESCE($6, user_role),
+          wallet_points = COALESCE($7, wallet_points),
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $7
+      WHERE id = $8
       RETURNING id, name, email, phone, role, is_verified, user_role, wallet_points
     `;
     const result = await db.query(query, [
@@ -97,6 +98,7 @@ router.put('/users/:id', async (req, res) => {
       role || null,
       isVerified !== undefined ? isVerified : null,
       userRole || null,
+      walletPoints !== undefined ? parseInt(walletPoints, 10) : null,
       id,
     ]);
 
@@ -497,6 +499,71 @@ router.get('/rides', async (req, res) => {
   }
 });
 
+router.put('/rides/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      startCity,
+      endCity,
+      departureDate,
+      departureTime,
+      pricePerSeat,
+      availableSeats,
+      status,
+      carModel,
+      carPlate,
+    } = req.body;
+
+    const query = `
+      UPDATE rides
+      SET start_city = COALESCE($1, start_city),
+          end_city = COALESCE($2, end_city),
+          departure_date = COALESCE($3, departure_date),
+          departure_time = COALESCE($4, departure_time),
+          price_per_seat = COALESCE($5, price_per_seat),
+          available_seats = COALESCE($6, available_seats),
+          status = COALESCE($7, status),
+          car_model = COALESCE($8, car_model),
+          car_plate = COALESCE($9, car_plate),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $10
+      RETURNING *
+    `;
+
+    const result = await db.query(query, [
+      startCity || null,
+      endCity || null,
+      departureDate || null,
+      departureTime || null,
+      pricePerSeat !== undefined ? parseFloat(pricePerSeat) : null,
+      availableSeats !== undefined ? parseInt(availableSeats, 10) : null,
+      status || null,
+      carModel || null,
+      carPlate || null,
+      id,
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'الرحلة غير موجودة' });
+    }
+
+    await logAdminActivity(
+      db,
+      req.user.userId,
+      req.user.email,
+      'تعديل تفاصيل رحلة',
+      `تم تعديل بيانات الرحلة ${id} (${result.rows[0].start_city} ➔ ${result.rows[0].end_city})`,
+      id,
+      req.ip
+    );
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating ride:', err);
+    res.status(500).json({ success: false, error: 'Failed to update ride' });
+  }
+});
+
 router.delete('/rides/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -551,6 +618,102 @@ router.get('/requested-trips', async (req, res) => {
   }
 });
 
+router.put('/requested-trips/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      startCity,
+      endCity,
+      departureDate,
+      departureTime,
+      menCount,
+      womenCount,
+      childrenCount,
+      status,
+    } = req.body;
+
+    const query = `
+      UPDATE requested_trips
+      SET start_city = COALESCE($1, start_city),
+          end_city = COALESCE($2, end_city),
+          departure_date = COALESCE($3, departure_date),
+          departure_time = COALESCE($4, departure_time),
+          men_count = COALESCE($5, men_count),
+          women_count = COALESCE($6, women_count),
+          children_count = COALESCE($7, children_count),
+          status = COALESCE($8, status),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $9
+      RETURNING *
+    `;
+
+    const result = await db.query(query, [
+      startCity || null,
+      endCity || null,
+      departureDate || null,
+      departureTime || null,
+      menCount !== undefined ? parseInt(menCount, 10) : null,
+      womenCount !== undefined ? parseInt(womenCount, 10) : null,
+      childrenCount !== undefined ? parseInt(childrenCount, 10) : null,
+      status || null,
+      id,
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'طلب الرحلة غير موجود' });
+    }
+
+    await logAdminActivity(
+      db,
+      req.user.userId,
+      req.user.email,
+      'تعديل طلب رحلة',
+      `تم تعديل طلب الرحلة ${id} (${result.rows[0].start_city} ➔ ${result.rows[0].end_city})`,
+      id,
+      req.ip
+    );
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating requested trip:', err);
+    res.status(500).json({ success: false, error: 'Failed to update requested trip' });
+  }
+});
+
+router.post('/requested-trips/:id/reopen', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      `UPDATE requested_trips
+       SET status = 'OPEN', accepted_by_driver_id = NULL, accepted_by_driver_name = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'طلب الرحلة غير موجود' });
+    }
+
+    // Delete temporary ride generated from request if exists
+    await db.query('DELETE FROM rides WHERE id = $1', [`ride_from_req_${id}`]);
+
+    await logAdminActivity(
+      db,
+      req.user.userId,
+      req.user.email,
+      'إعادة فتح طلب رحلة للسائقين',
+      `تمت إعادة فتح طلب الرحلة ${id} (${result.rows[0].start_city} ➔ ${result.rows[0].end_city}) ليتمكن السائقون من قبوله مجدداً`,
+      id,
+      req.ip
+    );
+
+    res.json({ success: true, message: 'تمت إعادة فتح الطلب بنجاح', data: result.rows[0] });
+  } catch (err) {
+    console.error('Error reopening requested trip:', err);
+    res.status(500).json({ success: false, error: 'Failed to reopen requested trip' });
+  }
+});
+
 router.delete('/requested-trips/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -602,6 +765,27 @@ router.get('/chats/:rideId', async (req, res) => {
   } catch (err) {
     console.error('Error fetching room messages:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch messages' });
+  }
+});
+
+router.put('/chats/:rideId/messages/:messageId', async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { message } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'نص الرسالة مطلوب' });
+    }
+    const result = await db.query(
+      'UPDATE chat_messages SET message = $1 WHERE id = $2 RETURNING *',
+      [message.trim(), messageId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'الرسالة غير موجودة' });
+    }
+    res.json({ success: true, message: 'تم تعديل الرسالة بنجاح', data: result.rows[0] });
+  } catch (err) {
+    console.error('Error updating chat message:', err);
+    res.status(500).json({ success: false, error: 'Failed to update message' });
   }
 });
 

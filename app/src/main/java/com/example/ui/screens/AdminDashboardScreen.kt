@@ -306,7 +306,7 @@ fun AdminDashboardScreen(
                                         Toast.makeText(context, "تم تفريغ وحذف رسائل المحادثة", Toast.LENGTH_SHORT).show()
                                     },
                                     onDeleteMessage = { msgId ->
-                                        viewModel.deleteChatMessage(msgId)
+                                        viewModel.deleteChatMessage(selectedRideChatRoom ?: "", msgId)
                                         Toast.makeText(context, "تم حذف الرسالة بنجاح", Toast.LENGTH_SHORT).show()
                                     },
                                     onEditMessage = { msg ->
@@ -670,7 +670,7 @@ fun AdminDashboardScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            viewModel.editChatMessage(msg.id, editMessageNewText)
+                            viewModel.editChatMessage(msg.rideId, msg.id, editMessageNewText)
                             messageToEdit = null
                             Toast.makeText(context, "تم تعديل الرسالة بنجاح", Toast.LENGTH_SHORT).show()
                         },

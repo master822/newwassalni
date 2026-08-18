@@ -33,6 +33,12 @@ interface ApiService {
     @POST("api/auth/reset-password")
     suspend fun resetPassword(@Body request: ResetPasswordRequest): Response<ApiResponse<Unit>>
 
+    @POST("api/auth/forgot-password-email")
+    suspend fun forgotPasswordEmail(@Body request: ForgotPasswordEmailRequest): Response<ApiResponse<Map<String, @JvmSuppressWildcards Any?>>>
+
+    @POST("api/auth/reset-password-email")
+    suspend fun resetPasswordEmail(@Body request: ResetPasswordEmailRequest): Response<ApiResponse<Unit>>
+
     // ==========================================
     // 2. Users Endpoints
     // ==========================================
@@ -184,6 +190,12 @@ interface ApiService {
     @GET("api/admin/rides")
     suspend fun getAdminRides(): Response<ApiResponse<List<RideDto>>>
 
+    @PUT("api/admin/rides/{id}")
+    suspend fun updateAdminRide(
+        @Path("id") rideId: String,
+        @Body request: Map<String, @JvmSuppressWildcards Any?>
+    ): Response<ApiResponse<RideDto>>
+
     @DELETE("api/admin/rides/{id}")
     suspend fun deleteAdminRide(
         @Path("id") rideId: String,
@@ -193,11 +205,27 @@ interface ApiService {
     @GET("api/admin/requested-trips")
     suspend fun getAdminRequestedTrips(): Response<ApiResponse<List<RequestedTripDto>>>
 
+    @PUT("api/admin/requested-trips/{id}")
+    suspend fun updateAdminRequestedTrip(
+        @Path("id") tripId: String,
+        @Body request: Map<String, @JvmSuppressWildcards Any?>
+    ): Response<ApiResponse<RequestedTripDto>>
+
+    @POST("api/admin/requested-trips/{id}/reopen")
+    suspend fun reopenAdminRequestedTrip(@Path("id") tripId: String): Response<ApiResponse<RequestedTripDto>>
+
     @DELETE("api/admin/requested-trips/{id}")
     suspend fun deleteAdminRequestedTrip(@Path("id") tripId: String): Response<ApiResponse<Unit>>
 
     @GET("api/admin/chats")
     suspend fun getAdminChatRooms(): Response<ApiResponse<List<Map<String, @JvmSuppressWildcards Any?>>>>
+
+    @PUT("api/admin/chats/{rideId}/messages/{messageId}")
+    suspend fun editAdminChatMessage(
+        @Path("rideId") rideId: String,
+        @Path("messageId") messageId: String,
+        @Body body: Map<String, String>
+    ): Response<ApiResponse<ChatMessageDto>>
 
     @DELETE("api/admin/chats/{rideId}/messages/{messageId}")
     suspend fun deleteAdminChatMessage(
