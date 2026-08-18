@@ -10,6 +10,7 @@ const {
   authenticateToken,
 } = require('../middleware/auth');
 const { sendPasswordResetEmail } = require('../mailgun');
+const { sendOtpSms } = require('../sms');
 
 const ACCESS_TOKEN_EXPIRY = '1h'; // 1 hour access token
 const REFRESH_TOKEN_EXPIRY = '30d';
@@ -471,6 +472,13 @@ router.post('/send-otp', async (req, res) => {
       'INSERT INTO otp_verifications (id, phone, otp_hash, expires_at) VALUES ($1, $2, $3, $4)',
       [uuidv4(), cleanPhone, otpHash, expiresAt]
     );
+
+    // Send SMS via MSGPlus gateway
+    try {
+      await sendOtpSms(cleanPhone, generatedOtp);
+    } catch (smsErr) {
+      console.error('MSGPlus SMS dispatch error:', smsErr.message);
+    }
 
     const isDev = process.env.NODE_ENV !== 'production';
 

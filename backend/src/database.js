@@ -29,6 +29,18 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
+pool.on('connect', async (client) => {
+  const schema = process.env.DB_SCHEMA ? process.env.DB_SCHEMA.trim() : null;
+  if (schema && schema !== 'public') {
+    try {
+      await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
+      await client.query(`SET search_path TO "${schema}", public`);
+    } catch (err) {
+      console.warn(`⚠️ Warning: Could not set search_path to ${schema}:`, err.message);
+    }
+  }
+});
+
 pool.on('error', (err) => {
   console.error('Unexpected error on idle PostgreSQL client', err);
 });

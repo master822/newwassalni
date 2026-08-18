@@ -15,6 +15,7 @@ const settingsRoutes = require('./routes/settings');
 const adminRoutes = require('./routes/admin');
 const db = require('./database');
 const runMigration = require('./migrations/migrate');
+const bootstrapAdmin = require('./scripts/bootstrap-admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -88,7 +89,12 @@ app.use((err, req, res, next) => {
 if (process.env.NODE_ENV !== 'test') {
   // Run migration on startup then listen
   runMigration()
-    .then(() => {
+    .then(async () => {
+      try {
+        await bootstrapAdmin(false);
+      } catch (adminErr) {
+        console.warn('⚠️ Super Admin bootstrap warning:', adminErr.message);
+      }
       app.listen(PORT, () => {
         console.log(`=========================================`);
         console.log(`🚗 Wassalni API Server running on port ${PORT}`);

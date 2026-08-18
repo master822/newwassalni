@@ -3,24 +3,22 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../database');
 
-async function bootstrapAdmin() {
+async function bootstrapAdmin(shouldExit = false) {
   const email = process.env.SUPER_ADMIN_EMAIL;
   const password = process.env.SUPER_ADMIN_PASSWORD;
   const name = process.env.SUPER_ADMIN_NAME || 'مدير النظام الأول';
   const phone = process.env.SUPER_ADMIN_PHONE || '+963900000001';
 
   if (!email || !password) {
-    console.error('================================================================');
-    console.error('FATAL: SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD are strictly required.');
-    console.error('No fallback to default or secondary variables is allowed in production.');
-    console.error('Please configure SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD in environment.');
-    console.error('================================================================');
-    process.exit(1);
+    console.warn('[BOOTSTRAP] SUPER_ADMIN_EMAIL or SUPER_ADMIN_PASSWORD not set. Skipping bootstrap.');
+    if (shouldExit) process.exit(0);
+    return;
   }
 
   if (password.length < 8) {
-    console.error('FATAL: SUPER_ADMIN_PASSWORD must be at least 8 characters.');
-    process.exit(1);
+    console.warn('[BOOTSTRAP] SUPER_ADMIN_PASSWORD is less than 8 chars. Please use a stronger password.');
+    if (shouldExit) process.exit(1);
+    return;
   }
 
   console.log(`[BOOTSTRAP] Processing Super Admin setup for: ${email.trim().toLowerCase()}...`);
@@ -38,16 +36,21 @@ async function bootstrapAdmin() {
     if (existingUser.rows.length > 0) {
       const user = existingUser.rows[0];
       console.log(`[BOOTSTRAP] User already exists (ID: ${user.id}, Current Role: ${user.role}). Ensuring SUPER_ADMIN role...`);
+      
+      const salt = await bcrypt.genSalt(12);
+      const passwordHash = await bcrypt.hash(password, salt);
+
       await client.query(
         `UPDATE users
          SET role = 'SUPER_ADMIN',
+             password_hash = $1,
              is_suspended = FALSE,
              is_verified = TRUE,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [user.id]
+         WHERE id = $2`,
+        [passwordHash, user.id]
       );
-      console.log(`[BOOTSTRAP] User ${user.id} verified as SUPER_ADMIN.`);
+      console.log(`[BOOTSTRAP] User ${user.id} updated and verified as SUPER_ADMIN.`);
     } else {
       const salt = await bcrypt.genSalt(12);
       const passwordHash = await bcrypt.hash(password, salt);
@@ -65,23 +68,27 @@ async function bootstrapAdmin() {
       console.log(`[BOOTSTRAP] Successfully created Super Admin account with ID: ${userId}`);
     }
 
-    // Log admin activity (never logs password)
+    // Log admin activity
     await client.query(
       `INSERT INTO admin_activity_logs (id, admin_id, admin_name, action_type, details, ip_address)
-       VALUES ($1, 'SYSTEM_BOOTSTRAP', 'System Bootstrap CLI', 'SUPER_ADMIN_BOOTSTRAP', $2, '127.0.0.1')`,
+       VALUES ($1, 'SYSTEM_BOOTSTRAP', 'System Bootstrap', 'SUPER_ADMIN_BOOTSTRAP', $2, '127.0.0.1')`,
       [uuidv4(), `Super Admin verified for ${cleanEmail}`]
     );
 
     await client.query('COMMIT');
     console.log('[BOOTSTRAP] Super Admin provisioning completed successfully.');
-    process.exit(0);
+    if (shouldExit) process.exit(0);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[BOOTSTRAP] Error during Super Admin bootstrap:', err.message);
-    process.exit(1);
+    if (shouldExit) process.exit(1);
   } finally {
     client.release();
   }
 }
 
-bootstrapAdmin();
+if (require.main === module) {
+  bootstrapAdmin(true);
+}
+
+module.exports = bootstrapAdmin;
