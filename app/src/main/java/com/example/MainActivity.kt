@@ -400,6 +400,15 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
+                            onSendPhoneOtp = { phone ->
+                                viewModel.sendPhoneOtp(phone)
+                            },
+                            onVerifyPhoneOtp = { phone, otp ->
+                                viewModel.verifyPhoneOtp(phone, otp)
+                            },
+                            onResetPasswordPhone = { phone, otp, pass ->
+                                viewModel.resetPasswordWithPhone(phone, otp, pass)
+                            },
                             onForgotPasswordEmail = { email ->
                                 viewModel.sendForgotPasswordEmail(email)
                             },

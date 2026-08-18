@@ -368,6 +368,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _currentScreen.value = "search"
     }
 
+    suspend fun sendPhoneOtp(phone: String): Pair<Boolean, String> {
+        val result = repository.sendOtp(phone)
+        return if (result.isSuccess) {
+            Pair(true, result.getOrNull()?.message ?: "تم إرسال رمز التحقق المؤلف من 6 أرقام عبر SMS بنجاح")
+        } else {
+            Pair(false, result.exceptionOrNull()?.message ?: "فشل في إرسال رمز التحقق عبر SMS")
+        }
+    }
+
+    suspend fun verifyPhoneOtp(phone: String, otp: String): Pair<Boolean, String> {
+        val result = repository.verifyOtp(phone, otp)
+        return if (result.isSuccess) {
+            Pair(true, "تم التحقق من رقم الهاتف بنجاح")
+        } else {
+            Pair(false, result.exceptionOrNull()?.message ?: "رمز التحقق غير صحيح أو منتهي الصلاحية")
+        }
+    }
+
+    suspend fun resetPasswordWithPhone(phone: String, otp: String, newPass: String): Pair<Boolean, String> {
+        val result = repository.resetPassword(phone, otp, newPass)
+        return if (result.isSuccess) {
+            Pair(true, "تمت إعادة تعيين كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول.")
+        } else {
+            Pair(false, result.exceptionOrNull()?.message ?: "فشل في إعادة تعيين كلمة المرور")
+        }
+    }
+
     suspend fun sendForgotPasswordEmail(email: String): Pair<Boolean, String> {
         val result = repository.sendForgotPasswordEmail(email)
         return if (result.isSuccess) {

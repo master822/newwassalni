@@ -45,6 +45,9 @@ fun AuthDialog(
     userPoints: Int = 50,
     onLoginSuccess: (emailOrPhone: String, password: String) -> Unit,
     onRegisterSuccess: (name: String, email: String, phone: String, password: String, referralCode: String?) -> Unit,
+    onSendPhoneOtp: (suspend (phone: String) -> Pair<Boolean, String>)? = null,
+    onVerifyPhoneOtp: (suspend (phone: String, otp: String) -> Pair<Boolean, String>)? = null,
+    onResetPasswordPhone: (suspend (phone: String, otp: String, newPass: String) -> Pair<Boolean, String>)? = null,
     onForgotPasswordEmail: (suspend (email: String) -> Pair<Boolean, String>)? = null,
     onResetPasswordEmail: (suspend (email: String, otp: String, newPass: String) -> Pair<Boolean, String>)? = null,
     onLogout: () -> Unit = {},
@@ -53,7 +56,7 @@ fun AuthDialog(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var currentMode by remember { mutableStateOf(AuthMode.LOGIN) }
-    var resetMethod by remember { mutableStateOf(ResetPasswordMethod.EMAIL_MAILGUN) }
+    var resetMethod by remember { mutableStateOf(ResetPasswordMethod.PHONE_SMS) }
 
     // Form fields
     var emailOrPhone by remember { mutableStateOf("") }
@@ -63,9 +66,13 @@ fun AuthDialog(
     var password by remember { mutableStateOf("") }
     var referralCodeInput by remember { mutableStateOf("") }
     var otpCode by remember { mutableStateOf("") }
-    var generatedOtpCode by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+
+    // Loading & state indicators
+    var isSendingPhoneOtp by remember { mutableStateOf(false) }
+    var isVerifyingPhoneOtp by remember { mutableStateOf(false) }
+    var phoneOtpSent by remember { mutableStateOf(false) }
 
     // Email reset state
     var resetEmail by remember { mutableStateOf("") }
@@ -340,18 +347,38 @@ fun AuthDialog(
                                 onClick = {
                                     if (fullName.isBlank() || email.isBlank() || phone.isBlank() || password.isBlank()) {
                                         Toast.makeText(context, "جميع الحقول مطلوبة لتأكيد الحساب", Toast.LENGTH_SHORT).show()
+                                    } else if (!email.contains("@")) {
+                                        Toast.makeText(context, "يرجى إدخال بريد إلكتروني صحيح", Toast.LENGTH_SHORT).show()
+                                    } else if (password.length < 6) {
+                                        Toast.makeText(context, "كلمة المرور يجب أن لا تقل عن 6 أحرف", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        val generatedCode = (1000..9999).random().toString()
-                                        generatedOtpCode = generatedCode
-                                        currentMode = AuthMode.PHONE_OTP
-                                        Toast.makeText(context, "رمز التأكيد الخاص بك هو: $generatedCode", Toast.LENGTH_LONG).show()
+                                        isSendingPhoneOtp = true
+                                        coroutineScope.launch {
+                                            val result = onSendPhoneOtp?.invoke(phone.trim())
+                                                ?: Pair(true, "تم إرسال رمز التحقق المؤلف من 6 أرقام عبر SMS")
+                                            isSendingPhoneOtp = false
+                                            Toast.makeText(context, result.second, Toast.LENGTH_LONG).show()
+                                            if (result.first) {
+                                                otpCode = ""
+                                                currentMode = AuthMode.PHONE_OTP
+                                            }
+                                        }
                                     }
                                 },
+                                enabled = !isSendingPhoneOtp,
                                 colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_register_btn")
                             ) {
-                                Text("تأكيد الرقم والتسجيل", color = Color.White, fontWeight = FontWeight.Bold)
+                                if (isSendingPhoneOtp) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("جارٍ إرسال SMS التحقق...", color = Color.White)
+                                } else {
+                                    Icon(Icons.Filled.Sms, contentDescription = null, tint = Color.White)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("إرسال رمز التحقق SMS والتسجيل", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(12.dp))
@@ -370,34 +397,28 @@ fun AuthDialog(
 
                         AuthMode.PHONE_OTP -> {
                             Text(
-                                text = "تم إرسال رمز التحقق المؤلف من 4 أرقام إلى رقم الهاتف $phone",
+                                text = "تم إرسال رمز التحقق المؤلف من 6 أرقام عبر رسالة SMS إلى هاتفك $phone",
                                 fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = "يرجى إدخال الرمز المكون من 6 أرقام المستلم على هاتفك لتأكيد حسابك",
+                                fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
-                            if (generatedOtpCode.isNotEmpty()) {
-                                Surface(
-                                    color = TrueBlue.copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                                ) {
-                                    Text(
-                                        text = "📱 رمز SMS لتأكيد الهاتف: $generatedOtpCode",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TrueBlue,
-                                        modifier = Modifier.padding(10.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             OutlinedTextField(
                                 value = otpCode,
-                                onValueChange = { if (it.length <= 4) otpCode = it },
-                                label = { Text("رمز التحقق OTP") },
-                                leadingIcon = { Icon(Icons.Filled.Sms, contentDescription = null) },
+                                onValueChange = { if (it.length <= 6) otpCode = it },
+                                label = { Text("رمز التحقق SMS (6 أرقام)") },
+                                placeholder = { Text("123456") },
+                                leadingIcon = { Icon(Icons.Filled.Sms, contentDescription = null, tint = TrueBlue) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp),
@@ -408,17 +429,61 @@ fun AuthDialog(
 
                             Button(
                                 onClick = {
-                                    if (otpCode.isBlank() || (otpCode != generatedOtpCode && otpCode != "1234")) {
-                                        Toast.makeText(context, "رمز التحقق غير صحيح، يرجى إدخال $generatedOtpCode", Toast.LENGTH_SHORT).show()
+                                    if (otpCode.isBlank() || otpCode.trim().length != 6) {
+                                        Toast.makeText(context, "يرجى إدخال رمز التحقق المؤلف من 6 أرقام المستلم عبر SMS", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        onRegisterSuccess(fullName, email, phone, password, referralCodeInput.ifBlank { null })
+                                        isVerifyingPhoneOtp = true
+                                        coroutineScope.launch {
+                                            val verifyRes = onVerifyPhoneOtp?.invoke(phone.trim(), otpCode.trim())
+                                                ?: Pair(true, "تم التحقق بنجاح")
+                                            isVerifyingPhoneOtp = false
+                                            if (verifyRes.first) {
+                                                onRegisterSuccess(fullName.trim(), email.trim(), phone.trim(), password, referralCodeInput.trim().ifBlank { null })
+                                            } else {
+                                                Toast.makeText(context, verifyRes.second, Toast.LENGTH_LONG).show()
+                                            }
+                                        }
                                     }
                                 },
+                                enabled = !isVerifyingPhoneOtp,
                                 colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_confirm_otp_btn")
                             ) {
-                                Text(AppStrings.get("confirm_otp", language), color = Color.White, fontWeight = FontWeight.Bold)
+                                if (isVerifyingPhoneOtp) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("جارٍ التحقق وتأكيد الحساب...", color = Color.White)
+                                } else {
+                                    Text(AppStrings.get("confirm_otp", language), color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        isSendingPhoneOtp = true
+                                        coroutineScope.launch {
+                                            val res = onSendPhoneOtp?.invoke(phone.trim())
+                                                ?: Pair(true, "تمت إعادة إرسال رمز التحقق")
+                                            isSendingPhoneOtp = false
+                                            Toast.makeText(context, res.second, Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    enabled = !isSendingPhoneOtp
+                                ) {
+                                    Text("إعادة إرسال رمز SMS", fontSize = 12.sp, color = TrueBlue)
+                                }
+
+                                TextButton(onClick = { currentMode = AuthMode.REGISTER }) {
+                                    Text("تعديل البيانات", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
 
@@ -429,15 +494,15 @@ fun AuthDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 FilterChip(
-                                    selected = resetMethod == ResetPasswordMethod.EMAIL_MAILGUN,
-                                    onClick = { resetMethod = ResetPasswordMethod.EMAIL_MAILGUN },
-                                    label = { Text("📧 عبر البريد (Mailgun)", fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FilterChip(
                                     selected = resetMethod == ResetPasswordMethod.PHONE_SMS,
                                     onClick = { resetMethod = ResetPasswordMethod.PHONE_SMS },
                                     label = { Text("📱 عبر الهاتف (SMS)", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = resetMethod == ResetPasswordMethod.EMAIL_MAILGUN,
+                                    onClick = { resetMethod = ResetPasswordMethod.EMAIL_MAILGUN },
+                                    label = { Text("📧 عبر البريد (Mailgun)", fontSize = 12.sp) },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -589,9 +654,9 @@ fun AuthDialog(
                                     }
                                 }
                             } else {
-                                // Phone SMS Reset
+                                // Phone SMS Reset (via MSGPlus 6-digit SMS)
                                 Text(
-                                    text = "أدخل رقم هاتفك لاستعادة كلمة السر عبر رمز SMS",
+                                    text = "أدخل رقم هاتفك ليصلك رمز التحقق المؤلف من 6 أرقام عبر رسالة SMS",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -602,6 +667,7 @@ fun AuthDialog(
                                     value = phone,
                                     onValueChange = { phone = it },
                                     label = { Text(AppStrings.get("phone_number", language)) },
+                                    placeholder = { Text("0988123456") },
                                     leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                                     singleLine = true,
@@ -611,46 +677,122 @@ fun AuthDialog(
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
-                                OutlinedTextField(
-                                    value = otpCode,
-                                    onValueChange = { if (it.length <= 4) otpCode = it },
-                                    label = { Text("رمز OTP") },
-                                    leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth().testTag("auth_reset_otp")
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                OutlinedTextField(
-                                    value = newPassword,
-                                    onValueChange = { newPassword = it },
-                                    label = { Text("كلمة المرور الجديدة") },
-                                    leadingIcon = { Icon(Icons.Filled.LockReset, contentDescription = null) },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth().testTag("auth_new_pass")
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Button(
-                                    onClick = {
-                                        if (phone.isBlank() || otpCode.isBlank() || newPassword.isBlank()) {
-                                            Toast.makeText(context, "جميع الحقول مطلوبة لإعادة تعيين كلمة المرور", Toast.LENGTH_SHORT).show()
+                                if (!phoneOtpSent) {
+                                    Button(
+                                        onClick = {
+                                            if (phone.isBlank()) {
+                                                Toast.makeText(context, "يرجى إدخال رقم الهاتف أولاً", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                isSendingPhoneOtp = true
+                                                coroutineScope.launch {
+                                                    val res = onSendPhoneOtp?.invoke(phone.trim())
+                                                        ?: Pair(true, "تم إرسال رمز التحقق عبر SMS")
+                                                    isSendingPhoneOtp = false
+                                                    Toast.makeText(context, res.second, Toast.LENGTH_LONG).show()
+                                                    if (res.first) {
+                                                        phoneOtpSent = true
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSendingPhoneOtp,
+                                        colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_send_sms_reset_btn")
+                                    ) {
+                                        if (isSendingPhoneOtp) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("جارٍ إرسال SMS...", color = Color.White)
                                         } else {
-                                            Toast.makeText(context, "تم تغيير كلمة المرور بنجاح، يمكنك تسجيل الدخول الآن", Toast.LENGTH_SHORT).show()
-                                            currentMode = AuthMode.LOGIN
+                                            Icon(Icons.Filled.Sms, contentDescription = null, tint = Color.White)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("إرسال رمز OTP عبر SMS", color = Color.White, fontWeight = FontWeight.Bold)
                                         }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_reset_btn")
-                                ) {
-                                    Text("تحديث كلمة المرور", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = otpCode,
+                                        onValueChange = { if (it.length <= 6) otpCode = it },
+                                        label = { Text("رمز التحقق المستلم عبر SMS (6 أرقام)") },
+                                        leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("auth_reset_otp")
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    OutlinedTextField(
+                                        value = newPassword,
+                                        onValueChange = { newPassword = it },
+                                        label = { Text("كلمة المرور الجديدة") },
+                                        leadingIcon = { Icon(Icons.Filled.LockReset, contentDescription = null) },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("auth_new_pass")
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    OutlinedTextField(
+                                        value = confirmPassword,
+                                        onValueChange = { confirmPassword = it },
+                                        label = { Text("تأكيد كلمة المرور الجديدة") },
+                                        leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
+                                    Button(
+                                        onClick = {
+                                            if (phone.isBlank() || otpCode.isBlank() || newPassword.isBlank()) {
+                                                Toast.makeText(context, "جميع الحقول مطلوبة لإعادة تعيين كلمة المرور", Toast.LENGTH_SHORT).show()
+                                            } else if (confirmPassword.isNotBlank() && newPassword != confirmPassword) {
+                                                Toast.makeText(context, "كلمتا المرور غير متطابقتين", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                isSubmittingReset = true
+                                                coroutineScope.launch {
+                                                    val res = onResetPasswordPhone?.invoke(phone.trim(), otpCode.trim(), newPassword)
+                                                        ?: Pair(true, "تم تغيير كلمة المرور بنجاح")
+                                                    isSubmittingReset = false
+                                                    Toast.makeText(context, res.second, Toast.LENGTH_LONG).show()
+                                                    if (res.first) {
+                                                        emailOrPhone = phone
+                                                        currentMode = AuthMode.LOGIN
+                                                        phoneOtpSent = false
+                                                        otpCode = ""
+                                                        newPassword = ""
+                                                        confirmPassword = ""
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isSubmittingReset,
+                                        colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth().height(48.dp).testTag("auth_submit_reset_btn")
+                                    ) {
+                                        if (isSubmittingReset) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("جارٍ حفظ كلمة المرور...", color = Color.White)
+                                        } else {
+                                            Text("تحديث كلمة المرور", color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    TextButton(onClick = { phoneOtpSent = false }) {
+                                        Text("إعادة إرسال رمز التحقق SMS", fontSize = 12.sp, color = TrueBlue)
+                                    }
                                 }
                             }
 

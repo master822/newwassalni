@@ -474,19 +474,19 @@ router.post('/send-otp', async (req, res) => {
     );
 
     // Send SMS via MSGPlus gateway
+    let smsSuccess = true;
     try {
-      await sendOtpSms(cleanPhone, generatedOtp);
+      const smsRes = await sendOtpSms(cleanPhone, generatedOtp);
+      smsSuccess = smsRes.success !== false;
     } catch (smsErr) {
       console.error('MSGPlus SMS dispatch error:', smsErr.message);
+      smsSuccess = false;
     }
-
-    const isDev = process.env.NODE_ENV !== 'production';
 
     res.json({
       success: true,
-      message: 'تم إرسال رمز التحقق إلى هاتفك عبر رسالة SMS بنجاح',
+      message: 'تم إرسال رمز التحقق المؤلف من 6 أرقام إلى هاتفك عبر رسالة SMS بنجاح',
       expiresInSeconds: 300,
-      devOtp: isDev ? generatedOtp : undefined,
     });
   } catch (err) {
     console.error('Send OTP error:', err);
