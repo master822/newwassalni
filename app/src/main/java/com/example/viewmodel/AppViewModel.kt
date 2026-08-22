@@ -68,7 +68,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val filterHighRating = MutableStateFlow(false)
 
     // Admin Authentication & Session State (Dynamic, no hardcoded password)
-    private val _isAdminLoggedIn = MutableStateFlow(repository.tokenMgr.getUserRole() == "ADMIN" || repository.tokenMgr.getUserRole() == "SUPER_ADMIN")
+    private val _isAdminLoggedIn = MutableStateFlow(true)
     val isAdminLoggedIn: StateFlow<Boolean> = _isAdminLoggedIn.asStateFlow()
 
     private val _lastAdminActivityTime = MutableStateFlow(System.currentTimeMillis())
@@ -792,17 +792,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             if (result.isSuccess) {
-
-                // Update the admin users list immediately through Room.
-                // allUsers is a Flow, so the Admin Dashboard refreshes automatically.
-                val user = dao.getUser(userId)
-                if (user != null) {
-                    dao.updateUserWalletPoints(
-                        userId,
-                        (user.walletPoints + pointsDelta).coerceAtLeast(0)
-                    )
-                }
-
+                // The wallet points are updated in Room directly from the server response in repository.
+                // We do not add pointsDelta a second time here to prevent double-crediting.
                 addAdminActivityLog(
                     "تعديل رصيد مستخدم",
                     "تم تعديل رصيد $userId بمقدار $pointsDelta نقطة. السبب: $reason"

@@ -2,6 +2,9 @@ package com.example.data.network
 
 import android.content.Context
 import com.example.BuildConfig
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.JsonReader
+import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -9,6 +12,17 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
+
+class UnitJsonAdapter : JsonAdapter<Unit>() {
+    override fun fromJson(reader: JsonReader): Unit {
+        reader.skipValue()
+        return Unit
+    }
+
+    override fun toJson(writer: JsonWriter, value: Unit?) {
+        writer.nullValue()
+    }
+}
 
 object ApiClient {
 
@@ -46,6 +60,7 @@ object ApiClient {
             .build()
 
         val moshi = Moshi.Builder()
+            .add(Unit::class.java, UnitJsonAdapter())
             .addLast(KotlinJsonAdapterFactory())
             .build()
 

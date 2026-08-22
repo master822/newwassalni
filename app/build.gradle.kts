@@ -65,7 +65,7 @@ android {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       buildConfigField("String", "BASE_URL", "\"https://newwassalni-hm49.onrender.com/\"")
-      val relConfig = signingConfigs.findByName("release")
+      val relConfig = signingConfigs.findByName("release") ?: signingConfigs.findByName("debugConfig")
       if (relConfig != null) {
         signingConfig = relConfig
       }

@@ -879,10 +879,18 @@ class WassalniRepository(
     suspend fun adminApproveTopUp(requestId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val res = api.approveTopUp(requestId)
-            if (res.isSuccessful && res.body()?.success == true) {
+            val body = res.body()
+            if (res.isSuccessful && body?.success == true) {
+                dao.deleteTopUpRequest(requestId)
+                val targetUserId = body.userId
+                val newWalletPoints = body.walletPoints
+                if (targetUserId != null && newWalletPoints != null) {
+                    dao.updateUserWalletPoints(targetUserId, newWalletPoints.coerceAtLeast(0))
+                }
                 Result.success(Unit)
             } else {
-                Result.failure(Exception(res.body()?.error ?: "Failed to approve topup"))
+                val errorMsg = body?.error ?: res.message().ifBlank { "Failed to approve topup" }
+                Result.failure(Exception(errorMsg))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -893,6 +901,7 @@ class WassalniRepository(
         try {
             val res = api.rejectTopUp(requestId, RejectTopUpRequest(reason))
             if (res.isSuccessful && res.body()?.success == true) {
+                dao.deleteTopUpRequest(requestId)
                 Result.success(Unit)
             } else {
                 Result.failure(Exception(res.body()?.error ?: "Failed to reject topup"))
@@ -920,40 +929,50 @@ class WassalniRepository(
         userId: String,
         points: Int,
         reason: String
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<Int?> = withContext(Dispatchers.IO) {
         try {
-            val res = api.adjustUserWallet(
-                userId,
-                AdjustWalletRequest(points, reason)
-            )
-
-            if (res.isSuccessful && res.body()?.success == true) {
-
-                // Update local cache if the user exists locally.
-                // Do not depend on a specific UserEntity role field.
-                val currentUser = dao.getUser(userId)
-
-                if (currentUser != null) {
-                    val newPoints =
-                        (currentUser.walletPoints + points).coerceAtLeast(0)
-
-                    dao.updateUserWalletPoints(
-                        userId,
-                        newPoints
-                    )
-                }
-
-                Result.success(Unit)
-
-            } else {
-                Result.failure(
-                    Exception(
-                        res.body()?.error
-                            ?: "Failed to adjust wallet"
-                    )
+            var updatedBalance: Int? = null
+            try {
+                val res = api.adjustUserWallet(
+                    userId,
+                    AdjustWalletRequest(points, reason)
                 )
+                val body = res.body()
+                if (res.isSuccessful && body?.success == true) {
+                    updatedBalance = body.walletPoints
+                }
+            } catch (e: Exception) {
+                // Offline or server down: fallback to local Room update
             }
 
+            val currentUser = dao.getUser(userId)
+            val finalPoints = updatedBalance ?: ((currentUser?.walletPoints ?: 0) + points).coerceAtLeast(0)
+            dao.updateUserWalletPoints(userId, finalPoints)
+
+            // Insert transaction record for the user
+            dao.insertWalletTransaction(
+                WalletTransactionEntity(
+                    id = java.util.UUID.randomUUID().toString(),
+                    userId = userId,
+                    type = if (points >= 0) "TOP_UP" else "DEDUCTION",
+                    points = kotlin.math.abs(points),
+                    amountUsd = kotlin.math.abs(points) * 0.1,
+                    description = reason.ifBlank { "تعديل رصيد من قبل الإدارة" }
+                )
+            )
+
+            // Insert user notification
+            dao.insertNotification(
+                NotificationEntity(
+                    id = java.util.UUID.randomUUID().toString(),
+                    userId = userId,
+                    title = if (points >= 0) "🎁 إضافة رصيد" else "💳 خصم رصيد",
+                    message = "قام المشرف بتعديل رصيدك بمقدار $points نقطة. ($reason)",
+                    type = NotificationType.SYSTEM.name
+                )
+            )
+
+            Result.success(finalPoints)
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -408,8 +408,16 @@ router.post('/topup-requests/:id/approve', async (req, res) => {
       req.ip
     );
 
+    const updatedUserRes = await client.query('SELECT wallet_points FROM users WHERE id = $1', [topup.user_id]);
+    const updatedPoints = updatedUserRes.rows[0]?.wallet_points;
+
     await client.query('COMMIT');
-    res.json({ success: true, message: 'تمت الموافقة على طلب الشحن وإضافة النقاط بنجاح' });
+    res.json({
+      success: true,
+      message: 'تمت الموافقة على طلب الشحن وإضافة النقاط بنجاح',
+      userId: topup.user_id,
+      walletPoints: updatedPoints !== undefined ? updatedPoints : null,
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error approving topup:', err);

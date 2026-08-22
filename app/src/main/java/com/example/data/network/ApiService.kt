@@ -179,7 +179,7 @@ interface ApiService {
     suspend fun adjustUserWallet(
         @Path("id") userId: String,
         @Body request: AdjustWalletRequest
-    ): Response<ApiResponse<Unit>>
+    ): Response<AdjustWalletResponse>
 
     @POST("api/admin/impersonate/{userId}")
     suspend fun startImpersonation(@Path("userId") userId: String): Response<ImpersonateResponse>
@@ -188,7 +188,7 @@ interface ApiService {
     suspend fun getAdminTopUps(@Query("status") status: String? = null): Response<ApiResponse<List<TopUpRequestDto>>>
 
     @POST("api/admin/topup-requests/{id}/approve")
-    suspend fun approveTopUp(@Path("id") requestId: String): Response<ApiResponse<Unit>>
+    suspend fun approveTopUp(@Path("id") requestId: String): Response<ApproveTopUpResponse>
 
     @POST("api/admin/topup-requests/{id}/reject")
     suspend fun rejectTopUp(

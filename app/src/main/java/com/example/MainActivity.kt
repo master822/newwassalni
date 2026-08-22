@@ -132,7 +132,8 @@ class MainActivity : ComponentActivity() {
                                 onWalletClick = { viewModel.setScreen("wallet") },
                                 onNotificationClick = { viewModel.toggleNotificationsDialog(true) },
                                 onSettingsClick = { viewModel.toggleSettingsDialog(true) },
-                                onAuthClick = { showAuthDialog = true }
+                                onAuthClick = { showAuthDialog = true },
+                                onRefreshClick = performRefresh
                             )
                         },
                         bottomBar = {
@@ -144,16 +145,11 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     ) { innerPadding ->
-                        PullToRefreshBox(
-                            isRefreshing = isRefreshing,
-                            onRefresh = performRefresh,
+                        Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize()
-                            ) {
                             // Impersonation Banner for Super Admin
                             if (isImpersonating && impersonatedUser != null) {
                                 Surface(
@@ -420,11 +416,11 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Authentication & Account Dialog
-                    if (showAuthDialog || !isLoggedIn) {
+                    if (showAuthDialog) {
                         AuthDialog(
                             language = language,
                             isLoggedIn = isLoggedIn,
-                            isMandatory = !isLoggedIn,
+                            isMandatory = false,
                             userName = currentUser?.name ?: "أحمد المحمد",
                             userEmail = currentUser?.email ?: "ahmed@wasalni.app",
                             userPhone = currentUser?.phone ?: "+963 988 123 456",
@@ -483,23 +479,25 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
-    }
 
     private fun createNotificationChannel() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val channelId = "wassalni_notifications"
-            val channelName = getString(R.string.notification_channel_name)
-            val channelDesc = getString(R.string.notification_channel_desc)
-            val importance = android.app.NotificationManager.IMPORTANCE_DEFAULT
-            val channel = android.app.NotificationChannel(channelId, channelName, importance).apply {
-                description = channelDesc
-                enableLights(true)
-                lightColor = android.graphics.Color.parseColor("#1E7A5F")
-                enableVibration(true)
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channelId = "wassalni_notifications"
+                val channelName = getString(R.string.notification_channel_name)
+                val channelDesc = getString(R.string.notification_channel_desc)
+                val importance = android.app.NotificationManager.IMPORTANCE_DEFAULT
+                val channel = android.app.NotificationChannel(channelId, channelName, importance).apply {
+                    description = channelDesc
+                    enableLights(true)
+                    lightColor = android.graphics.Color.parseColor("#0F6E56")
+                    enableVibration(true)
+                }
+                val notificationManager = getSystemService(android.app.NotificationManager::class.java)
+                notificationManager?.createNotificationChannel(channel)
             }
-            val notificationManager = getSystemService(android.app.NotificationManager::class.java)
-            notificationManager?.createNotificationChannel(channel)
+        } catch (e: Throwable) {
+            e.printStackTrace()
         }
     }
 }

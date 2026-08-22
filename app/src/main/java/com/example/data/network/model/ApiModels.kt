@@ -357,3 +357,21 @@ data class ImpersonateResponse(
     @Json(name = "impersonatedToken") val impersonatedToken: String? = null,
     @Json(name = "user") val user: UserDto? = null
 )
+
+@JsonClass(generateAdapter = true)
+data class AdjustWalletResponse(
+    @Json(name = "success") val success: Boolean,
+    @Json(name = "message") val message: String? = null,
+    @Json(name = "error") val error: String? = null,
+    @Json(name = "walletPoints") val walletPoints: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ApproveTopUpResponse(
+    @Json(name = "success") val success: Boolean,
+    @Json(name = "message") val message: String? = null,
+    @Json(name = "error") val error: String? = null,
+    @Json(name = "userId") val userId: String? = null,
+    @Json(name = "walletPoints") val walletPoints: Int? = null
+)
+
