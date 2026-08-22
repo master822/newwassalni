@@ -605,6 +605,57 @@ class WassalniRepository(
         }
     }
 
+    /**
+     * Sync admin TopUp requests from backend into local Room database.
+     */
+    suspend fun syncAdminTopUpRequests(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.getAdminTopUps()
+
+            if (res.isSuccessful && res.body()?.success == true) {
+                val dtoList = res.body()?.data ?: emptyList()
+
+                dtoList.forEach { dto ->
+                    dao.insertTopUpRequest(
+                        TopUpRequestEntity(
+                            id = dto.id,
+                            userId = dto.userId,
+                            userName = dto.userName,
+                            packagePoints = dto.packagePoints,
+                            packagePriceUsd = dto.packagePriceUsd,
+                            receiptImagePath = dto.receiptImagePath ?: "",
+                            status = dto.status,
+                            rejectionReason = dto.rejectionReason,
+                            createdAt = parseTopUpCreatedAt(dto.createdAt)
+                        )
+                    )
+                }
+
+                Result.success(Unit)
+            } else {
+                Result.failure(
+                    Exception(res.body()?.error ?: "Failed to fetch admin topup requests")
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun parseTopUpCreatedAt(value: String?): Long {
+        if (value.isNullOrBlank()) return System.currentTimeMillis()
+
+        return try {
+            java.time.OffsetDateTime.parse(value).toInstant().toEpochMilli()
+        } catch (_: Exception) {
+            try {
+                java.time.Instant.parse(value).toEpochMilli()
+            } catch (_: Exception) {
+                System.currentTimeMillis()
+            }
+        }
+    }
+
     // ==========================================================
     // 5. CHAT / MESSAGES
     // ==========================================================
@@ -674,6 +725,52 @@ class WassalniRepository(
 
     // ==========================================================
     // 6. NOTIFICATIONS
+
+    suspend fun deleteNotification(notificationId: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val res = api.deleteNotification(notificationId)
+
+                if (res.isSuccessful && res.body()?.success == true) {
+                    dao.deleteNotification(notificationId)
+                    Result.success(Unit)
+                } else {
+                    Result.failure(
+                        Exception(
+                            res.body()?.error
+                                ?: res.body()?.message
+                                ?: "Failed to delete notification"
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    suspend fun deleteAllNotifications(userId: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val res = api.deleteAllNotifications()
+
+                if (res.isSuccessful && res.body()?.success == true) {
+                    dao.clearUserNotifications(userId)
+                    Result.success(Unit)
+                } else {
+                    Result.failure(
+                        Exception(
+                            res.body()?.error
+                                ?: res.body()?.message
+                                ?: "Failed to delete notifications"
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+
     // ==========================================================
 
     suspend fun syncNotifications(): Result<List<NotificationEntity>> = withContext(Dispatchers.IO) {
@@ -688,7 +785,14 @@ class WassalniRepository(
                         title = dto.title,
                         message = dto.message,
                         type = dto.type,
-                        isRead = dto.isRead
+                        isRead = dto.isRead,
+                        timestamp = dto.createdAt?.let {
+                            try {
+                                java.time.Instant.parse(it).toEpochMilli()
+                            } catch (_: Exception) {
+                                System.currentTimeMillis()
+                            }
+                        } ?: System.currentTimeMillis()
                     )
                 }
                 dao.insertNotifications(entities)
@@ -702,6 +806,20 @@ class WassalniRepository(
     }
 
     suspend fun fetchNotifications(): Result<List<NotificationEntity>> = syncNotifications()
+
+    suspend fun markAllNotificationsAsRead(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.markAllNotificationsRead()
+            if (res.isSuccessful && res.body()?.success == true) {
+                dao.markAllNotificationsAsRead(userId)
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to mark notifications as read"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     // ==========================================================
     // 7. APP SETTINGS & CONFIG
@@ -798,19 +916,44 @@ class WassalniRepository(
         }
     }
 
-    suspend fun adminAdjustWallet(userId: String, points: Int, reason: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun adminAdjustWallet(
+        userId: String,
+        points: Int,
+        reason: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val res = api.adjustUserWallet(userId, AdjustWalletRequest(points, reason))
+            val res = api.adjustUserWallet(
+                userId,
+                AdjustWalletRequest(points, reason)
+            )
+
             if (res.isSuccessful && res.body()?.success == true) {
-                if (points >= 0) {
-                    dao.addWalletPoints(userId, points)
-                } else {
-                    dao.deductWalletPoints(userId, -points)
+
+                // Update local cache if the user exists locally.
+                // Do not depend on a specific UserEntity role field.
+                val currentUser = dao.getUser(userId)
+
+                if (currentUser != null) {
+                    val newPoints =
+                        (currentUser.walletPoints + points).coerceAtLeast(0)
+
+                    dao.updateUserWalletPoints(
+                        userId,
+                        newPoints
+                    )
                 }
+
                 Result.success(Unit)
+
             } else {
-                Result.failure(Exception(res.body()?.error ?: "Failed to adjust wallet"))
+                Result.failure(
+                    Exception(
+                        res.body()?.error
+                            ?: "Failed to adjust wallet"
+                    )
+                )
             }
+
         } catch (e: Exception) {
             Result.failure(e)
         }

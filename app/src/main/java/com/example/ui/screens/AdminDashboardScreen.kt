@@ -519,10 +519,49 @@ fun AdminDashboardScreen(
                     Button(
                         onClick = {
                             val pts = adjustPointsDelta.toIntOrNull() ?: 0
-                            if (pts > 0) {
-                                viewModel.adminAdjustUserWallet(user.id, if (isPointsAddition) pts else -pts, adjustPointsReason)
-                                userToAdjustWallet = null
-                                Toast.makeText(context, "تم تعديل الرصيد بنجاح", Toast.LENGTH_SHORT).show()
+                            val reason = adjustPointsReason.trim()
+
+                            if (pts <= 0) {
+                                Toast.makeText(
+                                    context,
+                                    "أدخل عدد نقاط صحيح أكبر من صفر",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else if (reason.isBlank()) {
+                                Toast.makeText(
+                                    context,
+                                    "اكتب سبب العملية",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                val delta =
+                                    if (isPointsAddition) pts else -pts
+
+                                viewModel.adminAdjustUserWallet(
+                                    user.id,
+                                    delta,
+                                    reason
+                                ) { success, error ->
+
+                                    if (success) {
+                                        userToAdjustWallet = null
+                                        adjustPointsDelta = ""
+                                        adjustPointsReason = ""
+
+                                        Toast.makeText(
+                                            context,
+                                            "تم تعديل الرصيد بنجاح",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            error ?: "فشل تعديل الرصيد",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen)

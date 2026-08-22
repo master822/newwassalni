@@ -21,7 +21,9 @@ import com.example.ui.theme.AppStrings
 fun NotificationCenterDialog(
     notifications: List<NotificationEntity>,
     language: AppLanguage,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onDeleteNotification: (String) -> Unit,
+    onDeleteAllNotifications: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -60,7 +62,10 @@ fun NotificationCenterDialog(
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(notifications) { notif ->
+                        items(
+                            items = notifications,
+                            key = { it.id }
+                        ) { notif ->
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -70,11 +75,27 @@ fun NotificationCenterDialog(
                                     modifier = Modifier.padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(
-                                        text = notif.title,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = notif.title,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        TextButton(
+                                            onClick = {
+                                                onDeleteNotification(notif.id)
+                                            }
+                                        ) {
+                                            Text("حذف")
+                                        }
+                                    }
+
                                     Text(
                                         text = notif.message,
                                         fontSize = 12.sp,
@@ -88,8 +109,20 @@ fun NotificationCenterDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("إغلاق")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (notifications.isNotEmpty()) {
+                    TextButton(
+                        onClick = onDeleteAllNotifications
+                    ) {
+                        Text("حذف الكل")
+                    }
+                }
+
+                TextButton(onClick = onDismiss) {
+                    Text("إغلاق")
+                }
             }
         }
     )

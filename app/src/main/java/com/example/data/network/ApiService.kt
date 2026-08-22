@@ -3,6 +3,7 @@ package com.example.data.network
 import com.example.data.network.model.*
 import retrofit2.Response
 import retrofit2.http.*
+import retrofit2.http.DELETE
 
 interface ApiService {
 
@@ -137,6 +138,14 @@ interface ApiService {
 
     @PUT("api/notifications/read-all")
     suspend fun markAllNotificationsRead(): Response<ApiResponse<Unit>>
+
+    @DELETE("api/notifications/{id}")
+    suspend fun deleteNotification(
+        @Path("id") notificationId: String
+    ): Response<ApiResponse<Unit>>
+
+    @DELETE("api/notifications")
+    suspend fun deleteAllNotifications(): Response<ApiResponse<Unit>>
 
     // ==========================================
     // 8. Public App Settings Endpoints

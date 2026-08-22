@@ -3,6 +3,7 @@ package com.example
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -10,10 +11,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +38,7 @@ import com.example.ui.theme.*
 import com.example.viewmodel.AppViewModel
 
 class MainActivity : ComponentActivity() {
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -81,6 +86,40 @@ class MainActivity : ComponentActivity() {
             val layoutDirection = if (language == AppLanguage.ARABIC) LayoutDirection.Rtl else LayoutDirection.Ltr
             val coroutineScope = rememberCoroutineScope()
 
+            var isRefreshing by remember { mutableStateOf(false) }
+
+            val performRefresh: () -> Unit = {
+                isRefreshing = true
+                viewModel.refreshAllData()
+                coroutineScope.launch {
+                    kotlinx.coroutines.delay(800L)
+                    isRefreshing = false
+                }
+            }
+
+            // Physical Android back button navigation.
+            BackHandler {
+                when (currentScreen) {
+                    "ride_details" -> viewModel.setScreen("search_results")
+                    "search_results" -> viewModel.setScreen("search")
+                    "messages" -> viewModel.setScreen("ride_details")
+                    "requested_trips" -> viewModel.setScreen("search")
+                    "wallet" -> viewModel.setScreen("search")
+                    "admin" -> viewModel.setScreen("search")
+                    else -> {
+                        if (showNotifications) {
+                            viewModel.toggleNotificationsDialog(false)
+                        } else if (showSettings) {
+                            viewModel.toggleSettingsDialog(false)
+                        } else if (showAuthDialog && isLoggedIn) {
+                            showAuthDialog = false
+                        } else {
+                            finish()
+                        }
+                    }
+                }
+            }
+
             CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
                 WassalniTheme(darkTheme = isDarkMode) {
                     Scaffold(
@@ -105,11 +144,16 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     ) { innerPadding ->
-                        Column(
+                        PullToRefreshBox(
+                            isRefreshing = isRefreshing,
+                            onRefresh = performRefresh,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize()
+                            ) {
                             // Impersonation Banner for Super Admin
                             if (isImpersonating && impersonatedUser != null) {
                                 Surface(
@@ -365,7 +409,13 @@ class MainActivity : ComponentActivity() {
                         NotificationCenterDialog(
                             notifications = notifications,
                             language = language,
-                            onDismiss = { viewModel.toggleNotificationsDialog(false) }
+                            onDismiss = { viewModel.toggleNotificationsDialog(false) },
+                            onDeleteNotification = { notificationId ->
+                                viewModel.deleteNotification(notificationId)
+                            },
+                            onDeleteAllNotifications = {
+                                viewModel.deleteAllNotifications()
+                            }
                         )
                     }
 
@@ -432,6 +482,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+    
     }
 
     private fun createNotificationChannel() {
