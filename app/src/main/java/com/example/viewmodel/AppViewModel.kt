@@ -68,7 +68,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val filterHighRating = MutableStateFlow(false)
 
     // Admin Authentication & Session State (Dynamic, no hardcoded password)
-    private val _isAdminLoggedIn = MutableStateFlow(true)
+    private val _isAdminLoggedIn = MutableStateFlow(repository.tokenMgr.isAdmin())
     val isAdminLoggedIn: StateFlow<Boolean> = _isAdminLoggedIn.asStateFlow()
 
     private val _lastAdminActivityTime = MutableStateFlow(System.currentTimeMillis())
@@ -218,6 +218,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Sync rides and requested trips
         repository.fetchRides()
         repository.fetchRequestedTrips()
+        repository.fetchAdminUsers()
+        seedSampleUsersIfEmpty()
 
         if (repository.tokenMgr.isLoggedIn()) {
             val uid = repository.tokenMgr.getUserId() ?: currentUserId
@@ -247,6 +249,91 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             seedSampleRidesIfEmpty()
             seedSampleRequestedTripsIfEmpty()
+        }
+    }
+
+    private suspend fun seedSampleUsersIfEmpty() {
+        try {
+            val users = dao.getAllUsers().first()
+            if (users.size <= 1) {
+                val samples = listOf(
+                    UserEntity(
+                        id = currentUserId,
+                        name = "أحمد المحمد",
+                        email = "ahmad@wasalni.app",
+                        phone = "+963 988 123 456",
+                        avatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300",
+                        rating = 4.9f,
+                        rideCount = 38,
+                        isVerified = true,
+                        walletPoints = 150,
+                        userRole = "DRIVER"
+                    ),
+                    UserEntity(
+                        id = "user_driver_101",
+                        name = "سامر الحمصي",
+                        email = "samer@wasalni.app",
+                        phone = "+963 944 555 111",
+                        avatarUrl = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=300",
+                        rating = 4.8f,
+                        rideCount = 64,
+                        isVerified = true,
+                        walletPoints = 280,
+                        userRole = "DRIVER"
+                    ),
+                    UserEntity(
+                        id = "user_driver_102",
+                        name = "مريم الحلبي",
+                        email = "maryam@wasalni.app",
+                        phone = "+963 933 777 222",
+                        avatarUrl = "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=300",
+                        rating = 5.0f,
+                        rideCount = 42,
+                        isVerified = true,
+                        walletPoints = 320,
+                        userRole = "DRIVER"
+                    ),
+                    UserEntity(
+                        id = "user_pass_201",
+                        name = "خالد العلي",
+                        email = "khaled@wasalni.app",
+                        phone = "+963 955 888 333",
+                        avatarUrl = "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=300",
+                        rating = 4.7f,
+                        rideCount = 19,
+                        isVerified = true,
+                        walletPoints = 85,
+                        userRole = "PASSENGER"
+                    ),
+                    UserEntity(
+                        id = "user_pass_202",
+                        name = "سارة الشامي",
+                        email = "sara@wasalni.app",
+                        phone = "+963 966 999 444",
+                        avatarUrl = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=300",
+                        rating = 4.9f,
+                        rideCount = 27,
+                        isVerified = true,
+                        walletPoints = 110,
+                        userRole = "PASSENGER"
+                    ),
+                    UserEntity(
+                        id = "user_pass_203",
+                        name = "عمر اليوسف",
+                        email = "omar@wasalni.app",
+                        phone = "+963 977 111 555",
+                        avatarUrl = "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=300",
+                        rating = 4.6f,
+                        rideCount = 12,
+                        isVerified = false,
+                        walletPoints = 40,
+                        userRole = "PASSENGER"
+                    )
+                )
+                dao.insertUsers(samples)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -463,6 +550,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // UI Navigation & State
     // ==========================================
 
+    private val screenBackStack = mutableListOf<String>()
+
     fun setLanguage(language: AppLanguage) {
         _appLanguage.value = language
     }
@@ -471,8 +560,74 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _isDarkMode.value = !_isDarkMode.value
     }
 
-    fun setScreen(screen: String) {
-        _currentScreen.value = screen
+    fun setScreen(screen: String, addToBackStack: Boolean = true) {
+        if (_currentScreen.value != screen) {
+            if (addToBackStack) {
+                screenBackStack.add(_currentScreen.value)
+            }
+            _currentScreen.value = screen
+        }
+    }
+
+    fun navigateBack(): Boolean {
+        // 1. Close open dialogs first
+        if (_showNotificationsDialog.value) {
+            _showNotificationsDialog.value = false
+            return true
+        }
+        if (_showSettingsDialog.value) {
+            _showSettingsDialog.value = false
+            return true
+        }
+        if (_showTopUpModal.value) {
+            _showTopUpModal.value = false
+            return true
+        }
+        if (_showInsufficientBalanceAlert.value) {
+            _showInsufficientBalanceAlert.value = false
+            return true
+        }
+
+        // 2. If in chat messages and a specific conversation is open, go back to conversations list
+        if (_currentScreen.value == "messages" && _selectedRide.value != null) {
+            _selectedRide.value = null
+            return true
+        }
+
+        // 3. Pop previous screen from backstack
+        while (screenBackStack.isNotEmpty()) {
+            val previousScreen = screenBackStack.removeAt(screenBackStack.size - 1)
+            if (previousScreen != _currentScreen.value) {
+                _currentScreen.value = previousScreen
+                if (previousScreen != "messages" && previousScreen != "ride_details") {
+                    _selectedRide.value = null
+                }
+                return true
+            }
+        }
+
+        // 4. Default fallback transitions if backstack was empty:
+        return when (_currentScreen.value) {
+            "ride_details" -> {
+                _selectedRide.value = null
+                _currentScreen.value = "search_results"
+                true
+            }
+            "search_results",
+            "messages",
+            "requested_trips",
+            "publish",
+            "bookings",
+            "my_trips",
+            "wallet",
+            "profile",
+            "admin" -> {
+                _selectedRide.value = null
+                _currentScreen.value = "search"
+                true
+            }
+            else -> false // At root search screen
+        }
     }
 
     fun selectRide(ride: RideEntity?) {
@@ -537,12 +692,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val user = currentUser.value ?: return@launch
             val updatedUser = user.copy(name = name, avatarUrl = avatarUrl, phone = phone)
             dao.insertUser(updatedUser)
+            dao.updateDriverProfileInRides(user.id, name, avatarUrl)
+            dao.updateUserProfileInRequestedTrips(user.id, name, avatarUrl)
+
+            try {
+                repository.updateProfile(name, avatarUrl, phone)
+            } catch (e: Exception) {
+                // Ignore network errors, local state already updated
+            }
 
             val notif = NotificationEntity(
                 id = UUID.randomUUID().toString(),
                 userId = currentUserId,
                 title = "تم تحديث بيانات الملف الشخصي",
-                message = "تم تحديث البيانات بنجاح.",
+                message = "تم تحديث صورتك الشخصية وبيانات حسابك بنجاح وستظهر لجميع المستخدمين.",
                 type = NotificationType.SYSTEM.name
             )
             dao.insertNotification(notif)
@@ -668,18 +831,127 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         rideId: String,
         text: String,
         imageUri: String? = null,
+        audioUri: String? = null,
+        audioDuration: Int = 0,
         isLocation: Boolean = false,
-        senderId: String = currentUserId,
         receiverId: String = "driver_id"
     ) {
         viewModelScope.launch {
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
+            val localMsg = ChatMessageEntity(
+                id = "msg_${UUID.randomUUID().toString().substring(0, 8)}",
+                rideId = rideId,
+                senderId = currentUid,
+                receiverId = receiverId,
+                messageText = text,
+                imageUri = imageUri,
+                audioUri = audioUri,
+                audioDurationSeconds = audioDuration,
+                isLocation = isLocation,
+                timestamp = System.currentTimeMillis()
+            )
+            // Immediately insert locally for instantaneous UI response
+            dao.insertChatMessage(localMsg)
+
+            // Sync with backend
             repository.sendChatMessage(
                 rideId = rideId,
                 text = text,
                 imageUri = imageUri,
+                audioUri = audioUri,
+                audioDuration = audioDuration,
                 isLocation = isLocation,
                 receiverId = receiverId
             )
+        }
+    }
+
+    fun startDirectChatWithUser(user: UserEntity) {
+        viewModelScope.launch {
+            val directChatId = "chat_user_${user.id}"
+            val directRide = RideEntity(
+                id = directChatId,
+                driverId = user.id,
+                driverName = user.name,
+                driverAvatar = user.avatarUrl,
+                startCity = "محادثة مباشرة",
+                endCity = user.name,
+                departureDate = "دعم وتواصل",
+                departureTime = "",
+                duration = "فوري",
+                pricePerSeat = 0.0,
+                availableSeats = 1,
+                totalSeats = 1,
+                carModel = "دعم وإشراف الإدارة",
+                carColor = "أزرق",
+                carPlate = "ADMIN",
+                driverRating = user.rating,
+                driverTripCount = user.rideCount,
+                driverVerified = user.isVerified
+            )
+            dao.insertRide(directRide)
+            _selectedRide.value = directRide
+            _currentScreen.value = "messages"
+            addAdminActivityLog("محادثة مع مستخدم", "بدء محادثة مباشرة مع: ${user.name} (${user.id})")
+        }
+    }
+
+    fun submitDriverRating(
+        driverId: String,
+        rideId: String,
+        ratingScore: Float,
+        reviewComment: String = "",
+        tags: List<String> = emptyList()
+    ) {
+        viewModelScope.launch {
+            val existingRide = dao.getRideById(rideId)
+            val currentRating = existingRide?.driverRating ?: 4.9f
+            val currentTrips = existingRide?.driverTripCount ?: 12
+            val newTrips = currentTrips + 1
+            // Compute weighted new rating
+            val computedRating = ((currentRating * currentTrips) + ratingScore) / newTrips
+            val roundedRating = (Math.round(computedRating * 10.0) / 10.0).toFloat().coerceIn(1.0f, 5.0f)
+
+            dao.updateDriverRatingInRides(driverId, roundedRating, newTrips)
+            dao.updateUserRatingAndRides(driverId, roundedRating, newTrips)
+
+            // Update in-memory selected ride
+            _selectedRide.value?.let { sel ->
+                if (sel.id == rideId || sel.driverId == driverId) {
+                    _selectedRide.value = sel.copy(
+                        driverRating = roundedRating,
+                        driverTripCount = newTrips
+                    )
+                }
+            }
+
+            // Create notification for driver
+            val tagText = if (tags.isNotEmpty()) " (${tags.joinToString(", ")})" else ""
+            val commentText = if (reviewComment.isNotBlank()) " - \"$reviewComment\"" else ""
+            val notification = NotificationEntity(
+                id = "notif_rate_${UUID.randomUUID().toString().substring(0, 8)}",
+                userId = driverId,
+                title = "تقييم جديد ⭐ ($ratingScore/5)",
+                message = "تلقيت تقييماً جديداً لرحلتك! $tagText $commentText",
+                type = "RATING",
+                timestamp = System.currentTimeMillis()
+            )
+            dao.insertNotification(notification)
+            addAdminActivityLog("تقييم سائق", "تم تقييم السائق $driverId بدرجة $ratingScore نجوم للرحلة $rideId")
+        }
+    }
+
+    fun deleteChatConversation(rideId: String) {
+        viewModelScope.launch {
+            dao.deleteChatMessagesForRide(rideId)
+            repository.deleteChatConversation(rideId)
+        }
+    }
+
+    fun deleteChatMessage(messageId: String) {
+        viewModelScope.launch {
+            dao.deleteChatMessage(messageId)
+            repository.deleteChatMessage(messageId)
         }
     }
 
@@ -689,7 +961,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 id = UUID.randomUUID().toString(),
                 rideId = rideId,
                 senderId = "system",
-                receiverId = currentUserId,
+                receiverId = activeUserId.value,
                 messageText = "تذكير: بعد انتهاء الرحلة يرجى تحويل/دفع المبلغ للسائق.",
                 isPaymentReminder = true
             )
@@ -775,6 +1047,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.adminToggleSuspend(userId, false, null)
             addAdminActivityLog("إعادة تفعيل حساب", "تم فك التجميد وتفعيل حساب المستخدم $userId")
+        }
+    }
+
+    fun adminCreateUser(
+        name: String,
+        email: String,
+        phone: String,
+        role: String,
+        initialPoints: Int = 50,
+        isVerified: Boolean = true,
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        viewModelScope.launch {
+            try {
+                val res = repository.adminCreateUser(
+                    name = name.trim(),
+                    email = email.trim(),
+                    phone = phone.trim(),
+                    role = role,
+                    initialPoints = initialPoints,
+                    isVerified = isVerified
+                )
+                if (res.isSuccess) {
+                    val created = res.getOrNull()
+                    addAdminActivityLog(
+                        "إنشاء مستخدم جديد",
+                        "تم إنشاء حساب للمستخدم ${created?.name ?: name} برقم ${created?.phone ?: phone} ورصيد $initialPoints نقطة"
+                    )
+                    onComplete(true, "تم إنشاء المستخدم بنجاح")
+                } else {
+                    onComplete(false, res.exceptionOrNull()?.message ?: "فشل إنشاء المستخدم")
+                }
+            } catch (e: Exception) {
+                onComplete(false, e.message ?: "حدث خطأ غير متوقع")
+            }
+        }
+    }
+
+    fun adminDeleteUser(userId: String) {
+        viewModelScope.launch {
+            dao.deleteUser(userId)
+            repository.adminDeleteUser(userId)
+            addAdminActivityLog("حذف مستخدم نهائياً", "تم حذف المستخدم $userId نهائياً من قاعدة البيانات")
         }
     }
 

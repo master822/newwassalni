@@ -127,6 +127,16 @@ interface ApiService {
         @Body request: SendChatMessageRequest
     ): Response<ApiResponse<ChatMessageDto>>
 
+    @DELETE("api/messages/{rideId}")
+    suspend fun deleteChatConversation(
+        @Path("rideId") rideId: String
+    ): Response<ApiResponse<Unit>>
+
+    @DELETE("api/messages/item/{messageId}")
+    suspend fun deleteChatMessage(
+        @Path("messageId") messageId: String
+    ): Response<ApiResponse<Unit>>
+
     // ==========================================
     // 7. Notifications Endpoints
     // ==========================================
@@ -156,6 +166,11 @@ interface ApiService {
     // ==========================================
     // 9. Admin Endpoints
     // ==========================================
+    @POST("api/admin/users")
+    suspend fun createAdminUser(
+        @Body request: Map<String, @JvmSuppressWildcards Any?>
+    ): Response<ApiResponse<UserDto>>
+
     @GET("api/admin/users")
     suspend fun getAdminUsers(
         @Query("search") search: String? = null,
@@ -168,6 +183,11 @@ interface ApiService {
         @Path("id") userId: String,
         @Body updates: Map<String, @JvmSuppressWildcards Any?>
     ): Response<ApiResponse<UserDto>>
+
+    @DELETE("api/admin/users/{id}")
+    suspend fun deleteAdminUser(
+        @Path("id") userId: String
+    ): Response<ApiResponse<Unit>>
 
     @POST("api/admin/users/{id}/toggle-suspend")
     suspend fun toggleUserSuspension(

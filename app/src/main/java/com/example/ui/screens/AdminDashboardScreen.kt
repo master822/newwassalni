@@ -7,9 +7,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -33,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.*
 import com.example.ui.components.GlassCard
+import com.example.ui.components.normalizeSyrianPhoneNumber
 import com.example.ui.theme.*
 import com.example.viewmodel.AppViewModel
 
@@ -71,6 +74,16 @@ fun AdminDashboardScreen(
 
     var userToSuspend by remember { mutableStateOf<UserEntity?>(null) }
     var suspendReasonText by remember { mutableStateOf("") }
+    var userToDelete by remember { mutableStateOf<UserEntity?>(null) }
+
+    // Create User state
+    var showCreateUserDialog by remember { mutableStateOf(false) }
+    var newUserName by remember { mutableStateOf("") }
+    var newUserPhone by remember { mutableStateOf("") }
+    var newUserEmail by remember { mutableStateOf("") }
+    var newUserRole by remember { mutableStateOf("راكب وسائق") }
+    var newUserPoints by remember { mutableStateOf("50") }
+    var newUserIsVerified by remember { mutableStateOf(true) }
 
     var userToEdit by remember { mutableStateOf<UserEntity?>(null) }
     var editUserName by remember { mutableStateOf("") }
@@ -269,9 +282,18 @@ fun AdminDashboardScreen(
                             AdminSection.USERS -> {
                                 AdminUsersSubPage(
                                     allUsers = allUsers,
-                                    onImpersonate = { u ->
-                                        viewModel.startImpersonation(u)
-                                        Toast.makeText(context, "تم الدخول بحساب المستخدم: ${u.name}", Toast.LENGTH_SHORT).show()
+                                    onCreateUser = {
+                                        newUserName = ""
+                                        newUserPhone = ""
+                                        newUserEmail = ""
+                                        newUserRole = "راكب وسائق"
+                                        newUserPoints = "50"
+                                        newUserIsVerified = true
+                                        showCreateUserDialog = true
+                                    },
+                                    onChatWithUser = { u ->
+                                        viewModel.startDirectChatWithUser(u)
+                                        Toast.makeText(context, "بدء محادثة مع: ${u.name}", Toast.LENGTH_SHORT).show()
                                     },
                                     onAdjustWallet = { u ->
                                         userToAdjustWallet = u
@@ -291,7 +313,8 @@ fun AdminDashboardScreen(
                                     onReactivate = { u ->
                                         viewModel.reactivateUser(u.id)
                                         Toast.makeText(context, "تمت إعادة تفعيل حساب ${u.name}", Toast.LENGTH_SHORT).show()
-                                    }
+                                    },
+                                    onDeleteUser = { u -> userToDelete = u }
                                 )
                             }
 
@@ -445,6 +468,178 @@ fun AdminDashboardScreen(
         }
 
         // ================= DIALOGS =================
+        // Create New User Dialog (Admin)
+        if (showCreateUserDialog) {
+            AlertDialog(
+                onDismissRequest = { showCreateUserDialog = false },
+                icon = { Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = PrimaryGreen) },
+                title = { Text("إنشاء مستخدم جديد", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "أدخل بيانات الحساب الجديد ليتم تسجيله في النظام وتفعيل محفظته مباشرة:",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        OutlinedTextField(
+                            value = newUserName,
+                            onValueChange = { newUserName = it },
+                            label = { Text("اسم المستخدم الكامل *") },
+                            leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("new_user_name_input")
+                        )
+
+                        OutlinedTextField(
+                            value = newUserPhone,
+                            onValueChange = { newUserPhone = it },
+                            label = { Text("رقم الهاتف (مثال: 0988123456) *") },
+                            leadingIcon = { Icon(Icons.Filled.Phone, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("new_user_phone_input")
+                        )
+
+                        OutlinedTextField(
+                            value = newUserEmail,
+                            onValueChange = { newUserEmail = it },
+                            label = { Text("البريد الإلكتروني (اختياري)") },
+                            leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("new_user_email_input")
+                        )
+
+                        Text("نوع الحساب / الصلاحية:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("راكب وسائق", "سائق", "راكب").forEach { role ->
+                                FilterChip(
+                                    selected = newUserRole == role,
+                                    onClick = { newUserRole = role },
+                                    label = { Text(role, fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = newUserPoints,
+                            onValueChange = { newUserPoints = it },
+                            label = { Text("الرصيد الأولي للنقاط في المحفظة") },
+                            leadingIcon = { Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, tint = PrimaryGreen) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("new_user_points_input")
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { newUserIsVerified = !newUserIsVerified }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Filled.Verified, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(20.dp))
+                                Text("توثيق الحساب فورياً (شارة موثق)", fontSize = 13.sp)
+                            }
+                            Switch(
+                                checked = newUserIsVerified,
+                                onCheckedChange = { newUserIsVerified = it }
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (newUserName.isBlank()) {
+                                Toast.makeText(context, "يرجى إدخال اسم المستخدم", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (newUserPhone.isBlank()) {
+                                Toast.makeText(context, "يرجى إدخال رقم الهاتف", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val normPhone = normalizeSyrianPhoneNumber(newUserPhone)
+                            val points = newUserPoints.toIntOrNull() ?: 50
+                            viewModel.adminCreateUser(
+                                name = newUserName.trim(),
+                                email = newUserEmail.trim(),
+                                phone = normPhone,
+                                role = newUserRole,
+                                initialPoints = points,
+                                isVerified = newUserIsVerified
+                            ) { success, msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                if (success) {
+                                    showCreateUserDialog = false
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("submit_create_user_btn")
+                    ) {
+                        Text("إنشاء الحساب", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCreateUserDialog = false }) {
+                        Text("إلغاء")
+                    }
+                }
+            )
+        }
+
+        // User Delete Confirmation Dialog
+        userToDelete?.let { user ->
+            AlertDialog(
+                onDismissRequest = { userToDelete = null },
+                icon = { Icon(Icons.Filled.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                title = { Text("حذف المستخدم نهائياً", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("هل أنت متأكد من رغبتك في حذف حساب (${user.name}) نهائياً من النظام؟")
+                        Text("الهاتف: ${user.phone} • الرصيد: ${user.walletPoints} نقطة", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("تحذير: لا يمكن التراجع عن هذا الإجراء وسيتم مسح كافة سجلات الحساب.", fontSize = 12.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.adminDeleteUser(user.id)
+                            userToDelete = null
+                            Toast.makeText(context, "تم حذف المستخدم نهائياً بنجاح", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("تأكيد الحذف النهائي", color = Color.White)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { userToDelete = null }) { Text("إلغاء") }
+                }
+            )
+        }
+
         // User Suspend Dialog
         userToSuspend?.let { user ->
             AlertDialog(
@@ -1059,12 +1254,14 @@ private fun AdminMainHub(
 @Composable
 private fun AdminUsersSubPage(
     allUsers: List<UserEntity>,
-    onImpersonate: (UserEntity) -> Unit,
+    onCreateUser: () -> Unit,
+    onChatWithUser: (UserEntity) -> Unit,
     onAdjustWallet: (UserEntity) -> Unit,
     onEditUser: (UserEntity) -> Unit,
     onViewDetails: (UserEntity) -> Unit,
     onSuspend: (UserEntity) -> Unit,
-    onReactivate: (UserEntity) -> Unit
+    onReactivate: (UserEntity) -> Unit,
+    onDeleteUser: (UserEntity) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filteredUsers = allUsers.filter {
@@ -1074,15 +1271,33 @@ private fun AdminUsersSubPage(
     }
 
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("بحث عن مستخدم بالاسم، الإيميل، أو رقم الهاتف...") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().testTag("admin_user_search")
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("بحث عن مستخدم...") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).testTag("admin_user_search")
+            )
+
+            Button(
+                onClick = onCreateUser,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                modifier = Modifier.testTag("admin_add_user_btn")
+            ) {
+                Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("مستخدم جديد", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+            }
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -1098,11 +1313,22 @@ private fun AdminUsersSubPage(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(
-                                    modifier = Modifier.size(44.dp).clip(CircleShape).background(PrimaryGreen.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Filled.Person, contentDescription = null, tint = PrimaryGreen)
+                                if (!u.avatarUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = u.avatarUrl,
+                                        contentDescription = u.name,
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier.size(44.dp).clip(CircleShape).background(PrimaryGreen.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Filled.Person, contentDescription = null, tint = PrimaryGreen)
+                                    }
                                 }
                                 Column {
                                     Text(u.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1137,15 +1363,15 @@ private fun AdminUsersSubPage(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Button(
-                                onClick = { onImpersonate(u) },
+                                onClick = { onChatWithUser(u) },
                                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1.2f)
+                                modifier = Modifier.weight(1.2f).testTag("chat_user_btn_${u.id}")
                             ) {
-                                Icon(Icons.Filled.SwitchAccount, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Filled.ChatBubble, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("دخول بحسابه", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("محادثة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
 
                             OutlinedButton(
@@ -1180,8 +1406,15 @@ private fun AdminUsersSubPage(
                                 }
                             } else {
                                 IconButton(onClick = { onSuspend(u) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Filled.Block, contentDescription = "Suspend", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Filled.Block, contentDescription = "Suspend", tint = Color(0xFFD97706), modifier = Modifier.size(18.dp))
                                 }
+                            }
+
+                            IconButton(
+                                onClick = { onDeleteUser(u) },
+                                modifier = Modifier.size(32.dp).testTag("delete_user_btn_${u.id}")
+                            ) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "حذف المستخدم", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                             }
                         }
                     }

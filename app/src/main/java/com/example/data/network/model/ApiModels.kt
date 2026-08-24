@@ -259,6 +259,8 @@ data class ChatMessageDto(
     @Json(name = "timestamp") val timestamp: String,
     @Json(name = "is_driver") val isDriver: Boolean = false,
     @Json(name = "image_uri") val imageUri: String? = null,
+    @Json(name = "audio_uri") val audioUri: String? = null,
+    @Json(name = "audio_duration") val audioDuration: Int? = 0,
     @Json(name = "is_location") val isLocation: Boolean = false,
     @Json(name = "latitude") val latitude: Double? = null,
     @Json(name = "longitude") val longitude: Double? = null
@@ -268,6 +270,8 @@ data class ChatMessageDto(
 data class SendChatMessageRequest(
     @Json(name = "message") val message: String,
     @Json(name = "imageUri") val imageUri: String? = null,
+    @Json(name = "audioUri") val audioUri: String? = null,
+    @Json(name = "audioDuration") val audioDuration: Int? = 0,
     @Json(name = "isLocation") val isLocation: Boolean = false,
     @Json(name = "latitude") val latitude: Double? = null,
     @Json(name = "longitude") val longitude: Double? = null

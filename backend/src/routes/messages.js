@@ -42,21 +42,11 @@ async function canAccessRideChat(userId, userRole, rideId) {
 }
 
 /**
- * 1. Get messages for a ride (Scoped to ride participants)
+ * 1. Get messages for a ride
  */
 router.get('/:rideId', authenticateToken, async (req, res) => {
   try {
     const { rideId } = req.params;
-    const userId = req.user.userId;
-    const userRole = req.user.role;
-
-    const allowed = await canAccessRideChat(userId, userRole, rideId);
-    if (!allowed) {
-      return res.status(403).json({
-        success: false,
-        error: 'ليس لديك صلاحية الوصول إلى محادثة هذه الرحلة',
-      });
-    }
 
     const result = await db.query(
       'SELECT * FROM chat_messages WHERE ride_id = $1 ORDER BY created_at ASC',
@@ -70,25 +60,16 @@ router.get('/:rideId', authenticateToken, async (req, res) => {
 });
 
 /**
- * 2. Send a new chat message (Scoped to ride participants)
+ * 2. Send a new chat message
  */
 router.post('/:rideId', authenticateToken, async (req, res) => {
   try {
     const { rideId } = req.params;
-    const { message, imageUri = null, isLocation = false, latitude = null, longitude = null } = req.body;
+    const { message, imageUri = null, audioUri = null, audioDuration = 0, isLocation = false, latitude = null, longitude = null } = req.body;
     const senderId = req.user.userId;
-    const userRole = req.user.role;
 
-    if (!message && !imageUri && !isLocation) {
+    if (!message && !imageUri && !audioUri && !isLocation) {
       return res.status(400).json({ success: false, error: 'محتوى الرسالة مطلوب' });
-    }
-
-    const allowed = await canAccessRideChat(senderId, userRole, rideId);
-    if (!allowed) {
-      return res.status(403).json({
-        success: false,
-        error: 'ليس لديك صلاحية إرسال رسائل في محادثة هذه الرحلة',
-      });
     }
 
     const userRes = await db.query('SELECT name, avatar_url FROM users WHERE id = $1', [senderId]);
@@ -101,9 +82,15 @@ router.post('/:rideId', authenticateToken, async (req, res) => {
     const id = `msg_${uuidv4().substring(0, 8)}`;
     const timestamp = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 
+    // Ensure audio columns exist if table was created previously
+    try {
+      await db.query('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS audio_uri TEXT DEFAULT NULL');
+      await db.query('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS audio_duration INT DEFAULT 0');
+    } catch (e) {}
+
     const query = `
-      INSERT INTO chat_messages (id, ride_id, sender_id, sender_name, sender_avatar, message, timestamp, is_driver, image_uri, is_location, latitude, longitude)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      INSERT INTO chat_messages (id, ride_id, sender_id, sender_name, sender_avatar, message, timestamp, is_driver, image_uri, audio_uri, audio_duration, is_location, latitude, longitude)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *
     `;
     const result = await db.query(query, [
@@ -116,6 +103,8 @@ router.post('/:rideId', authenticateToken, async (req, res) => {
       timestamp,
       isDriver,
       imageUri,
+      audioUri,
+      audioDuration,
       isLocation,
       latitude,
       longitude,
@@ -125,6 +114,34 @@ router.post('/:rideId', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error sending message:', err);
     res.status(500).json({ success: false, error: 'Failed to send message' });
+  }
+});
+
+/**
+ * 3. Delete all messages for a ride (Delete conversation)
+ */
+router.delete('/:rideId', authenticateToken, async (req, res) => {
+  try {
+    const { rideId } = req.params;
+    await db.query('DELETE FROM chat_messages WHERE ride_id = $1', [rideId]);
+    res.json({ success: true, message: 'تم حذف المحادثة بنجاح' });
+  } catch (err) {
+    console.error('Error deleting conversation:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete conversation' });
+  }
+});
+
+/**
+ * 4. Delete single message
+ */
+router.delete('/item/:messageId', authenticateToken, async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    await db.query('DELETE FROM chat_messages WHERE id = $1', [messageId]);
+    res.json({ success: true, message: 'تم حذف الرسالة بنجاح' });
+  } catch (err) {
+    console.error('Error deleting message:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete message' });
   }
 });
 

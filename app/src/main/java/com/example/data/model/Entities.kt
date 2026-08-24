@@ -128,6 +128,8 @@ data class ChatMessageEntity(
     val receiverId: String,
     val messageText: String,
     val imageUri: String? = null,
+    val audioUri: String? = null,
+    val audioDurationSeconds: Int = 0,
     val isLocation: Boolean = false,
     val latitude: Double? = null,
     val longitude: Double? = null,

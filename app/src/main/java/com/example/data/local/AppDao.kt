@@ -22,6 +22,9 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUser(user: UserEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUsers(users: List<UserEntity>)
+
     @Query("UPDATE users SET isSuspended = :isSuspended, suspendReason = :reason WHERE id = :userId")
     suspend fun updateUserSuspension(userId: String, isSuspended: Boolean, reason: String?)
 
@@ -174,4 +177,16 @@ interface AppDao {
         userId: String,
         points: Int
     )
+
+    @Query("UPDATE rides SET driverName = :name, driverAvatar = :avatarUrl WHERE driverId = :userId")
+    suspend fun updateDriverProfileInRides(userId: String, name: String, avatarUrl: String)
+
+    @Query("UPDATE requested_trips SET userName = :name, userAvatar = :avatarUrl WHERE userId = :userId")
+    suspend fun updateUserProfileInRequestedTrips(userId: String, name: String, avatarUrl: String)
+
+    @Query("UPDATE rides SET driverRating = :rating, driverTripCount = :tripCount WHERE driverId = :driverId")
+    suspend fun updateDriverRatingInRides(driverId: String, rating: Float, tripCount: Int)
+
+    @Query("UPDATE users SET rating = :rating, rideCount = :tripCount WHERE id = :userId")
+    suspend fun updateUserRatingAndRides(userId: String, rating: Float, tripCount: Int)
 }

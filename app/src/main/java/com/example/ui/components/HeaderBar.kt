@@ -25,6 +25,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.example.data.model.AppLanguage
 import com.example.ui.theme.*
 
@@ -38,6 +40,7 @@ fun HeaderBar(
     onNotificationClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onAuthClick: () -> Unit,
+    currentUserAvatar: String? = null,
     onRefreshClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -134,24 +137,6 @@ fun HeaderBar(
                     }
                 }
 
-                if (onRefreshClick != null) {
-                    IconButton(
-                        onClick = onRefreshClick,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .testTag("header_refresh_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "تحديث",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
                 // Notifications Bell Icon with Badge
                 Box {
                     IconButton(
@@ -215,12 +200,23 @@ fun HeaderBar(
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .testTag("header_auth_btn")
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.AccountCircle,
-                        contentDescription = "Login / Account",
-                        tint = PrimaryGreen,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    if (!currentUserAvatar.isNullOrBlank()) {
+                        AsyncImage(
+                            model = currentUserAvatar,
+                            contentDescription = "الملف الشخصي",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.AccountCircle,
+                            contentDescription = "Login / Account",
+                            tint = PrimaryGreen,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }

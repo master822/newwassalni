@@ -97,24 +97,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Physical Android back button navigation.
+            var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
+            // Physical Android back button & gesture navigation handler
             BackHandler {
-                when (currentScreen) {
-                    "ride_details" -> viewModel.setScreen("search_results")
-                    "search_results" -> viewModel.setScreen("search")
-                    "messages" -> viewModel.setScreen("ride_details")
-                    "requested_trips" -> viewModel.setScreen("search")
-                    "wallet" -> viewModel.setScreen("search")
-                    "admin" -> viewModel.setScreen("search")
-                    else -> {
-                        if (showNotifications) {
-                            viewModel.toggleNotificationsDialog(false)
-                        } else if (showSettings) {
-                            viewModel.toggleSettingsDialog(false)
-                        } else if (showAuthDialog && isLoggedIn) {
-                            showAuthDialog = false
-                        } else {
+                if (showAuthDialog && isLoggedIn) {
+                    showAuthDialog = false
+                } else {
+                    val handled = viewModel.navigateBack()
+                    if (!handled) {
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastBackPressTime < 2000) {
                             finish()
+                        } else {
+                            lastBackPressTime = currentTime
+                            val exitMsg = if (language == AppLanguage.ARABIC) {
+                                "اضغط مرة أخرى للرجوع والخروج من التطبيق"
+                            } else {
+                                "Press back again to exit"
+                            }
+                            android.widget.Toast.makeText(this@MainActivity, exitMsg, android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -122,27 +124,68 @@ class MainActivity : ComponentActivity() {
 
             CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
                 WassalniTheme(darkTheme = isDarkMode) {
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize(),
+                    if (!isLoggedIn) {
+                        AuthScreen(
+                            language = language,
+                            isDarkMode = isDarkMode,
+                            onLoginSuccess = { emailOrPhone, password ->
+                                coroutineScope.launch {
+                                    val result = viewModel.loginUserAccount(emailOrPhone, password)
+                                    android.widget.Toast.makeText(this@MainActivity, result.second, android.widget.Toast.LENGTH_SHORT).show()
+                                    if (result.first && viewModel.isAdminLoggedIn.value) {
+                                        viewModel.setScreen("admin")
+                                    }
+                                }
+                            },
+                            onRegisterSuccess = { name, email, phone, pass, refCode, verifyToken ->
+                                coroutineScope.launch {
+                                    val result = viewModel.registerUserAccount(
+                                        name,
+                                        email,
+                                        phone,
+                                        pass,
+                                        refCode,
+                                        verifyToken
+                                    )
+                                    android.widget.Toast.makeText(this@MainActivity, result.second, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            onSendPhoneOtp = { phone ->
+                                viewModel.sendPhoneOtp(phone)
+                            },
+                            onVerifyPhoneOtp = { phone, otp ->
+                                viewModel.verifyPhoneOtp(phone, otp)
+                            },
+                            onResetPasswordWithPhone = { phone, otp, pass ->
+                                viewModel.resetPasswordWithPhone(phone, otp, pass)
+                            },
+                            onToggleDarkMode = { viewModel.toggleDarkMode() },
+                            onLanguageChange = { viewModel.setLanguage(it) }
+                        )
+                    } else {
+                        Scaffold(
+                            modifier = Modifier.fillMaxSize(),
                         topBar = {
                             HeaderBar(
                                 userPoints = userPoints,
                                 unreadNotificationsCount = unreadCount,
                                 language = language,
+                                currentUserAvatar = currentUser?.avatarUrl,
                                 onWalletClick = { viewModel.setScreen("wallet") },
                                 onNotificationClick = { viewModel.toggleNotificationsDialog(true) },
                                 onSettingsClick = { viewModel.toggleSettingsDialog(true) },
-                                onAuthClick = { showAuthDialog = true },
-                                onRefreshClick = performRefresh
+                                onAuthClick = { showAuthDialog = true }
                             )
                         },
                         bottomBar = {
-                            BottomNavBar(
-                                currentRoute = currentScreen,
-                                onTabSelected = { tab -> viewModel.setScreen(tab.route) },
-                                language = language,
-                                isAdmin = isAdminLoggedIn
-                            )
+                            if (currentScreen != "messages" || selectedRide == null) {
+                                BottomNavBar(
+                                    currentRoute = currentScreen,
+                                    onTabSelected = { tab -> viewModel.setScreen(tab.route) },
+                                    language = language,
+                                    isAdmin = isAdminLoggedIn
+                                )
+                            }
                         }
                     ) { innerPadding ->
                         Column(
@@ -196,7 +239,13 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            PullToRefreshBox(
+                                isRefreshing = isRefreshing,
+                                onRefresh = performRefresh,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
                                 AnimatedContent(
                                     targetState = currentScreen,
                                     transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -244,6 +293,9 @@ class MainActivity : ComponentActivity() {
                                                         viewModel.selectRide(r)
                                                         viewModel.setScreen("messages")
                                                     },
+                                                    onRateDriver = { driverId, rideId, stars, comment, tags ->
+                                                        viewModel.submitDriverRating(driverId, rideId, stars, comment, tags)
+                                                    },
                                                     onBack = { viewModel.setScreen("search_results") }
                                                 )
                                             }
@@ -275,11 +327,24 @@ class MainActivity : ComponentActivity() {
                                             messages = chatMessages,
                                             allRides = allRides,
                                             language = language,
-                                            currentUserId = viewModel.currentUserId,
+                                            currentUserId = viewModel.activeUserId.value.ifBlank { viewModel.currentUserId },
                                             onSelectConversation = { r -> viewModel.selectRide(r) },
-                                            onSendMessage = { text, img, isLoc ->
+                                            onSendMessage = { text, img, audio, audioDuration, isLoc ->
                                                 val rideId = selectedRide?.id ?: "ride_1"
-                                                viewModel.sendChatMessage(rideId, text, img, isLoc)
+                                                viewModel.sendChatMessage(
+                                                    rideId = rideId,
+                                                    text = text,
+                                                    imageUri = img,
+                                                    audioUri = audio,
+                                                    audioDuration = audioDuration,
+                                                    isLocation = isLoc
+                                                )
+                                            },
+                                            onDeleteConversation = { rideId ->
+                                                viewModel.deleteChatConversation(rideId)
+                                            },
+                                            onDeleteMessage = { messageId ->
+                                                viewModel.deleteChatMessage(messageId)
                                             },
                                             onSendPaymentReminder = {
                                                 val rideId = selectedRide?.id ?: "ride_1"
@@ -475,6 +540,7 @@ class MainActivity : ComponentActivity() {
                             onDismiss = { showAuthDialog = false }
                         )
                     }
+                }
                 }
             }
         }

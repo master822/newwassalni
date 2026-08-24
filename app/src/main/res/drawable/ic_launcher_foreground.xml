@@ -1,74 +1,8 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    
-    <!-- Central Glow Ring -->
-    <path
-        android:fillColor="#15FFFFFF"
-        android:pathData="M 54 22 C 71.67 22 86 36.33 86 54 C 86 71.67 71.67 86 54 86 C 36.33 86 22 71.67 22 54 C 22 36.33 36.33 22 54 22 Z" />
-
-    <!-- Gold Pin Head & Car Accent Geometry -->
-    <path
-        android:fillColor="#FFD4AF37"
-        android:pathData="M 54 26 C 45.16 26 38 33.16 38 42 C 38 52.5 54 68 54 68 C 54 68 70 52.5 70 42 C 70 33.16 62.84 26 54 26 Z" />
-    
-    <!-- Pin Inner Dot -->
-    <path
-        android:fillColor="#093B2E"
-        android:pathData="M 54 36 C 50.69 36 48 38.69 48 42 C 48 45.31 50.69 48 54 48 C 57.31 48 60 45.31 60 42 C 60 38.69 57.31 36 54 36 Z" />
-
-    <!-- Sleek Modern Car Silhouette -->
-    <!-- Car Body -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M 33 60 C 31.9 60 31 60.9 31 62 L 30 67 C 30 68.1 30.9 69 32 69 L 34 69 C 34.5 69 35 68.6 35.2 68.1 L 36.5 64.5 L 71.5 64.5 L 72.8 68.1 C 73 68.6 73.5 69 74 69 L 76 69 C 77.1 69 78 68.1 78 67 L 77 62 C 77 60.9 76.1 60 75 60 L 68.5 53.5 C 67.5 52.5 66.2 52 64.8 52 L 43.2 52 C 41.8 52 40.5 52.5 39.5 53.5 L 33 60 Z" />
-
-    <!-- Car Windshield & Windows -->
-    <path
-        android:fillColor="#0F6E56"
-        android:pathData="M 43 54 L 65 54 L 69.5 59 L 38.5 59 Z" />
-
-    <!-- Car Wheels -->
-    <!-- Left Wheel Outer -->
-    <path
-        android:fillColor="#FFD4AF37"
-        android:pathData="M 38 66 C 36.34 66 35 67.34 35 69 C 35 70.66 36.34 72 38 72 C 39.66 72 41 70.66 41 69 C 41 67.34 39.66 66 38 66 Z" />
-    <path
-        android:fillColor="#093B2E"
-        android:pathData="M 38 68 C 37.45 68 37 68.45 37 69 C 37 69.55 37.45 70 38 70 C 38.55 70 39 69.55 39 69 C 39 68.45 38.55 68 38 68 Z" />
-
-    <!-- Right Wheel Outer -->
-    <path
-        android:fillColor="#FFD4AF37"
-        android:pathData="M 70 66 C 68.34 66 67 67.34 67 69 C 67 70.66 68.34 72 70 72 C 71.66 72 73 70.66 73 69 C 73 67.34 71.66 66 70 66 Z" />
-    <path
-        android:fillColor="#093B2E"
-        android:pathData="M 70 68 C 69.45 68 69 68.45 69 69 C 69 69.55 69.45 70 70 70 C 70.55 70 71 69.55 71 69 C 71 68.45 70.55 68 70 68 Z" />
-
-    <!-- Car Headlights -->
-    <path
-        android:fillColor="#FFEAA7"
-        android:pathData="M 32 63 L 34.5 63 L 34 65 L 31.5 65 Z" />
-    <path
-        android:fillColor="#FFEAA7"
-        android:pathData="M 76 63 L 73.5 63 L 74 65 L 76.5 65 Z" />
-
-    <!-- Highway Road Curve under the Car -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFD4AF37"
-        android:strokeWidth="2.5"
-        android:strokeLineCap="round"
-        android:pathData="M 24 78 Q 54 84 84 78" />
-
-    <!-- Dashed Center Road Line -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="round"
-        android:pathData="M 44 80.5 L 50 81 M 58 81 L 64 80.5" />
-
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="72dp"
+        android:height="72dp"
+        android:drawable="@drawable/wasalni_app_icon_1787472634576"
+        android:gravity="center" />
+</layer-list>

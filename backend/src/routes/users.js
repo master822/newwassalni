@@ -50,7 +50,26 @@ router.put('/profile', authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    const updatedUser = result.rows[0];
+
+    // Propagate avatar and name changes to all public entities created by this user
+    if (name || avatarUrl) {
+      if (name && avatarUrl) {
+        await db.query('UPDATE rides SET driver_name = $1, driver_avatar = $2 WHERE driver_id = $3', [name, avatarUrl, userId]);
+        await db.query('UPDATE requested_trips SET user_name = $1, user_avatar = $2 WHERE user_id = $3', [name, avatarUrl, userId]);
+        await db.query('UPDATE chat_messages SET sender_name = $1, sender_avatar = $2 WHERE sender_id = $3', [name, avatarUrl, userId]);
+      } else if (name) {
+        await db.query('UPDATE rides SET driver_name = $1 WHERE driver_id = $2', [name, userId]);
+        await db.query('UPDATE requested_trips SET user_name = $1 WHERE user_id = $2', [name, userId]);
+        await db.query('UPDATE chat_messages SET sender_name = $1 WHERE sender_id = $2', [name, userId]);
+      } else if (avatarUrl) {
+        await db.query('UPDATE rides SET driver_avatar = $1 WHERE driver_id = $2', [avatarUrl, userId]);
+        await db.query('UPDATE requested_trips SET user_avatar = $1 WHERE user_id = $2', [avatarUrl, userId]);
+        await db.query('UPDATE chat_messages SET sender_avatar = $1 WHERE sender_id = $2', [avatarUrl, userId]);
+      }
+    }
+
+    res.json({ success: true, data: updatedUser });
   } catch (err) {
     console.error('Error updating profile:', err);
     res.status(500).json({ success: false, error: 'Failed to update profile' });

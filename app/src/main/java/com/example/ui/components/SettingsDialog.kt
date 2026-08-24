@@ -220,37 +220,6 @@ fun SettingsDialog(
 
                 HorizontalDivider()
 
-                // Language Selection Section
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Filled.Language, contentDescription = null, tint = TrueBlue)
-                        Text(
-                            text = AppStrings.get("language", currentLanguage),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AppLanguage.values().forEach { lang ->
-                            val isSelected = currentLanguage == lang
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { onLanguageChange(lang) },
-                                label = { Text(lang.displayName) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("lang_chip_${lang.code}")
-                            )
-                        }
-                    }
-                }
-
-                HorizontalDivider()
-
                 // Dark Mode Switch Section
                 Row(
                     modifier = Modifier.fillMaxWidth(),
