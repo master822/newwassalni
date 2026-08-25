@@ -116,21 +116,46 @@ fun MessagesScreen(
         }
     }
 
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            audioRecordManager.startRecording()
+            isRecordingAudio = true
+            recordingDurationSeconds = 0
+        } else {
+            Toast.makeText(context, "يرجى منح إذن الميكروفون لتسجيل الرسائل الصوتية 🎙️", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // Build list of active conversations from available rides and dynamic DB messages
     val conversationsList = remember(allRides, allChatMessages, currentUserId) {
         if (allRides.isNotEmpty()) {
             allRides.map { r ->
                 val rideMsgs = allChatMessages.filter { it.rideId == r.id }.sortedBy { it.timestamp }
                 val lastMsg = rideMsgs.lastOrNull()
-                val unread = rideMsgs.count { it.receiverId == currentUserId && it.senderId != currentUserId }
+                val unread = rideMsgs.count { !it.isRead && it.senderId != currentUserId && (it.receiverId == currentUserId || it.receiverId.isBlank() || it.receiverId == "passenger_id" || it.receiverId == "driver_id") }
                 
                 val lastMsgText = when {
-                    rideMsgs.isEmpty() -> "انقر للتواصل وبدء المحادثة 💬"
-                    unread > 0 -> "💬 رسالة جديدة واردة (انقر للفتح)"
-                    lastMsg?.audioUri != null || (lastMsg?.audioDurationSeconds ?: 0) > 0 -> "🎙️ تسجيل صوتي (${lastMsg?.audioDurationSeconds ?: 0} ث)"
-                    lastMsg?.imageUri != null -> "📷 صورة مرفقة"
-                    lastMsg?.isLocation == true -> "📍 مشاركة الموقع"
-                    else -> "محادثة نشطة • انقر لعرض الرسائل"
+                    unread > 0 -> {
+                        when {
+                            lastMsg?.audioUri != null || (lastMsg?.audioDurationSeconds ?: 0) > 0 -> "🎙️ تسجيل صوتي جديد ($unread رسائل غير مقروءة)"
+                            lastMsg?.imageUri != null -> "📷 صورة جديدة ($unread غير مقروءة)"
+                            lastMsg?.isLocation == true -> "📍 مشاركة موقع جديدة"
+                            !lastMsg?.messageText.isNullOrBlank() -> lastMsg!!.messageText
+                            else -> "رسائل جديدة واردة لم تقرأ 💬"
+                        }
+                    }
+                    lastMsg != null -> {
+                        when {
+                            lastMsg.audioUri != null || lastMsg.audioDurationSeconds > 0 -> "🎙️ تسجيل صوتي (${lastMsg.audioDurationSeconds} ث)"
+                            lastMsg.imageUri != null -> "📷 صورة مرفقة"
+                            lastMsg.isLocation -> "📍 مشاركة الموقع"
+                            lastMsg.messageText.isNotBlank() -> lastMsg.messageText
+                            else -> "محادثة نشطة • انقر للعرض"
+                        }
+                    }
+                    else -> "انقر للتواصل وبدء المحادثة 💬"
                 }
 
                 val lastMsgTime = if (lastMsg != null) {
@@ -149,7 +174,10 @@ fun MessagesScreen(
                     lastTime = lastMsgTime,
                     unreadCount = unread
                 )
-            }
+            }.sortedWith(
+                compareByDescending<ConversationItem> { it.unreadCount > 0 }
+                    .thenByDescending { it.unreadCount }
+            )
         } else {
             emptyList()
         }
@@ -186,10 +214,12 @@ fun MessagesScreen(
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
+                    val totalUnread = filteredConversations.sumOf { it.unreadCount }
                     Text(
-                        text = "تواصل مباشرة وفورياً مع السائقين والركاب",
+                        text = if (totalUnread > 0) "لديك $totalUnread رسائل جديدة غير مقروءة 🔴" else "تواصل مباشرة وفورياً مع السائقين والركاب",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = if (totalUnread > 0) FontWeight.Bold else FontWeight.Normal,
+                        color = if (totalUnread > 0) ErrorRed else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -291,12 +321,14 @@ fun MessagesScreen(
                     contentPadding = PaddingValues(bottom = 90.dp)
                 ) {
                     items(filteredConversations, key = { it.ride.id }) { item ->
+                        val hasUnread = item.unreadCount > 0
                         Surface(
                             onClick = { onSelectConversation(item.ride) },
                             shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 2.dp,
-                            shadowElevation = 1.dp,
+                            color = if (hasUnread) PrimaryGreen.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
+                            border = if (hasUnread) BorderStroke(1.5.dp, ErrorRed.copy(alpha = 0.7f)) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                            tonalElevation = if (hasUnread) 4.dp else 2.dp,
+                            shadowElevation = if (hasUnread) 2.dp else 1.dp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("conversation_item_${item.ride.id}")
@@ -308,7 +340,7 @@ fun MessagesScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                // Contact Avatar with Online Indicator
+                                // Contact Avatar with Online Indicator and Red Unread Badge Dot
                                 Box {
                                     if (item.contactAvatar.isNotBlank()) {
                                         AsyncImage(
@@ -316,13 +348,13 @@ fun MessagesScreen(
                                             contentDescription = item.contactName,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier
-                                                .size(52.dp)
+                                                .size(54.dp)
                                                 .clip(CircleShape)
                                         )
                                     } else {
                                         Box(
                                             modifier = Modifier
-                                                .size(52.dp)
+                                                .size(54.dp)
                                                 .clip(CircleShape)
                                                 .background(PrimaryGreen.copy(alpha = 0.15f)),
                                             contentAlignment = Alignment.Center
@@ -335,14 +367,34 @@ fun MessagesScreen(
                                             )
                                         }
                                     }
-                                    // Online green badge
+
+                                    // Online green badge (Bottom End)
                                     Box(
                                         modifier = Modifier
-                                            .size(14.dp)
+                                            .size(13.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFF10B981))
                                             .align(Alignment.BottomEnd)
                                     )
+
+                                    // Unread Red Badge Dot (Top End)
+                                    if (hasUnread) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .background(ErrorRed)
+                                                .align(Alignment.TopEnd),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.White)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 // Details column
@@ -358,7 +410,7 @@ fun MessagesScreen(
                                         ) {
                                             Text(
                                                 text = item.contactName,
-                                                fontWeight = FontWeight.Bold,
+                                                fontWeight = if (hasUnread) FontWeight.ExtraBold else FontWeight.Bold,
                                                 fontSize = 15.sp,
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
@@ -378,11 +430,44 @@ fun MessagesScreen(
                                             }
                                         }
 
-                                        Text(
-                                            text = item.lastTime,
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = item.lastTime,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+
+                                            // Prominent Red Dot / Badge Pill
+                                            if (hasUnread) {
+                                                Surface(
+                                                    color = ErrorRed,
+                                                    shape = RoundedCornerShape(10.dp)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(6.dp)
+                                                                .clip(CircleShape)
+                                                                .background(Color.White)
+                                                        )
+                                                        Text(
+                                                            text = "${item.unreadCount}",
+                                                            color = Color.White,
+                                                            fontSize = 10.5.sp,
+                                                            fontWeight = FontWeight.ExtraBold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
 
                                     Spacer(modifier = Modifier.height(4.dp))
@@ -423,15 +508,30 @@ fun MessagesScreen(
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Spacer(modifier = Modifier.height(5.dp))
 
-                                    // Last message snippet
-                                    Text(
-                                        text = item.lastMessage,
-                                        fontSize = 12.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1
-                                    )
+                                    // Last message snippet with unread red dot
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (hasUnread) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(ErrorRed)
+                                            )
+                                        }
+                                        Text(
+                                            text = item.lastMessage,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (hasUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                 }
 
                                 // Delete Conversation Button
@@ -1321,9 +1421,13 @@ fun MessagesScreen(
                                 // WhatsApp-style Voice Recording Mic button
                                 IconButton(
                                     onClick = {
-                                        audioRecordManager.startRecording()
-                                        isRecordingAudio = true
-                                        recordingDurationSeconds = 0
+                                        if (audioRecordManager.hasPermission()) {
+                                            audioRecordManager.startRecording()
+                                            isRecordingAudio = true
+                                            recordingDurationSeconds = 0
+                                        } else {
+                                            recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                        }
                                     },
                                     modifier = Modifier
                                         .size(48.dp)

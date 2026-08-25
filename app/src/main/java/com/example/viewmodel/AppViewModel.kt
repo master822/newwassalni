@@ -187,6 +187,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _deletedChatRideIds = MutableStateFlow<Set<String>>(emptySet())
     val deletedChatRideIds: StateFlow<Set<String>> = _deletedChatRideIds.asStateFlow()
 
+    val unreadMessagesCount: StateFlow<Int> = combine(allChatMessages, activeUserId, _deletedChatRideIds) { messages, uid, deletedRides ->
+        val currentUid = uid.ifBlank { currentUserId }
+        messages.count { msg ->
+            msg.rideId !in deletedRides && !msg.isRead && msg.senderId != currentUid && (msg.receiverId == currentUid || msg.receiverId.isBlank() || msg.receiverId == "passenger_id" || msg.receiverId == "driver_id")
+        }
+    }.catch { emit(0) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     init {
         viewModelScope.launch {
             try {
@@ -658,6 +666,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectRide(ride: RideEntity?) {
         _selectedRide.value = ride
+        if (ride != null) {
+            markChatMessagesAsRead(ride.id)
+        }
+    }
+
+    fun markChatMessagesAsRead(rideId: String) {
+        viewModelScope.launch {
+            val uid = activeUserId.value.ifBlank { currentUserId }
+            dao.markChatMessagesAsRead(rideId, uid)
+            dao.markAllRideChatMessagesAsRead(rideId)
+        }
     }
 
     fun swapSearchCities() {

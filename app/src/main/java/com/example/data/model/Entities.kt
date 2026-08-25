@@ -134,6 +134,7 @@ data class ChatMessageEntity(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val isPaymentReminder: Boolean = false,
+    val isRead: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
 

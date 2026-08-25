@@ -113,6 +113,12 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChatMessages(messages: List<ChatMessageEntity>)
 
+    @Query("UPDATE chat_messages SET isRead = 1 WHERE rideId = :rideId AND receiverId = :userId")
+    suspend fun markChatMessagesAsRead(rideId: String, userId: String)
+
+    @Query("UPDATE chat_messages SET isRead = 1 WHERE rideId = :rideId")
+    suspend fun markAllRideChatMessagesAsRead(rideId: String)
+
     @Query("UPDATE chat_messages SET messageText = :newText WHERE id = :messageId")
     suspend fun updateChatMessageText(messageId: String, newText: String)
 

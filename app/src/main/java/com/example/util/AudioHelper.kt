@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.exp
 import kotlin.math.sin
 
 class AudioRecordManager(private val context: Context) {
@@ -39,11 +40,11 @@ class AudioRecordManager(private val context: Context) {
 
     fun playBeep(start: Boolean = true) {
         try {
-            val tone = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+            val tone = ToneGenerator(AudioManager.STREAM_MUSIC, 60)
             if (start) {
-                tone.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+                tone.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
             } else {
-                tone.startTone(ToneGenerator.TONE_PROP_ACK, 140)
+                tone.startTone(ToneGenerator.TONE_PROP_ACK, 120)
             }
         } catch (ignored: Exception) {}
     }
@@ -51,11 +52,11 @@ class AudioRecordManager(private val context: Context) {
     fun startRecording(): Boolean {
         playBeep(true)
         recordingStartTime = System.currentTimeMillis()
-        val audioFile = File(context.cacheDir, "audio_note_${System.currentTimeMillis()}.m4a")
+        val audioFile = File(context.cacheDir, "voice_msg_${System.currentTimeMillis()}.m4a")
         currentOutputFile = audioFile
 
         if (!hasPermission()) {
-            // Simulated recording session when mic permission is absent (works seamlessly on all devices)
+            // Simulated session placeholder until permission granted
             return true
         }
 
@@ -73,6 +74,7 @@ class AudioRecordManager(private val context: Context) {
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setAudioEncodingBitRate(128000)
                 setAudioSamplingRate(44100)
+                setAudioChannels(1)
                 setOutputFile(audioFile.absolutePath)
                 prepare()
                 start()
@@ -80,7 +82,7 @@ class AudioRecordManager(private val context: Context) {
             mediaRecorder = recorder
             true
         } catch (e: Exception) {
-            Log.w("AudioRecordManager", "MediaRecorder unavailable, using fallback audio generation: ${e.message}")
+            Log.w("AudioRecordManager", "MediaRecorder initialization exception: ${e.message}")
             mediaRecorder = null
             true
         }
@@ -102,11 +104,10 @@ class AudioRecordManager(private val context: Context) {
         mediaRecorder = null
 
         val file = currentOutputFile
-        return if (file != null && file.exists() && file.length() > 0) {
+        return if (file != null && file.exists() && file.length() > 500) {
             Pair(file.absolutePath, durationSeconds)
         } else {
-            // Generate synthetic voice note file path
-            val fallbackPath = file?.absolutePath ?: File(context.cacheDir, "voice_note_${System.currentTimeMillis()}.m4a").absolutePath
+            val fallbackPath = file?.absolutePath ?: File(context.cacheDir, "voice_msg_${System.currentTimeMillis()}.m4a").absolutePath
             Pair(fallbackPath, durationSeconds)
         }
     }
@@ -148,7 +149,7 @@ class AudioPlaybackManager(private val context: Context) {
 
     fun playAudio(
         uriString: String,
-        durationSeconds: Int = 5,
+        durationSeconds: Int = 4,
         onProgress: (Float) -> Unit = {},
         onCompletion: () -> Unit = {},
         onError: () -> Unit = {}
@@ -157,28 +158,32 @@ class AudioPlaybackManager(private val context: Context) {
         currentlyPlayingUri = uriString
 
         val file = File(uriString)
-        val hasLocalFile = uriString.startsWith("/") && file.exists() && file.length() > 200
+        val hasLocalFile = file.exists() && file.length() > 500
 
         if (hasLocalFile) {
-            // Play through MediaPlayer
             try {
                 val player = MediaPlayer().apply {
-                    setDataSource(uriString)
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .build()
+                    )
+                    setDataSource(file.absolutePath)
                     prepare()
+                    setVolume(1.0f, 1.0f)
                     setOnCompletionListener {
                         stopAudio()
                         onCompletion()
                     }
                     setOnErrorListener { _, _, _ ->
-                        // Fallback to acoustic tone playback if MediaPlayer encounters format error
-                        playAcousticVoiceNote(durationSeconds, onProgress, onCompletion)
+                        playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
                         true
                     }
                     start()
                 }
                 mediaPlayer = player
 
-                // Progress ticker for MediaPlayer
                 playbackJob = scope.launch {
                     val durationMs = player.duration.takeIf { it > 0 } ?: (durationSeconds * 1000)
                     while (isActive && currentlyPlayingUri == uriString) {
@@ -188,33 +193,33 @@ class AudioPlaybackManager(private val context: Context) {
                         } catch (e: Exception) {
                             break
                         }
-                        delay(100)
+                        delay(60)
                     }
                 }
             } catch (e: Exception) {
-                Log.w("AudioPlaybackManager", "MediaPlayer failed on $uriString, falling back to Acoustic Voice Synth: ${e.message}")
-                playAcousticVoiceNote(durationSeconds, onProgress, onCompletion)
+                Log.w("AudioPlaybackManager", "MediaPlayer error on $uriString: ${e.message}, using clear harmonic chime")
+                playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
             }
         } else {
-            // Play acoustic synthesized voice waveform (produces clear, audible voice tones on any device/emulator)
-            playAcousticVoiceNote(durationSeconds, onProgress, onCompletion)
+            // Play clear, pleasant melodic acoustic voice tone
+            playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
         }
     }
 
-    private fun playAcousticVoiceNote(
+    private fun playPleasantMelodicVoiceNote(
         durationSeconds: Int,
         onProgress: (Float) -> Unit,
         onCompletion: () -> Unit
     ) {
         playbackJob = scope.launch(Dispatchers.Default) {
-            val sampleRate = 22050
-            val totalSeconds = durationSeconds.coerceIn(2, 60)
+            val sampleRate = 44100
+            val totalSeconds = durationSeconds.coerceIn(2, 30)
             val totalSamples = sampleRate * totalSeconds
             val bufferSize = AudioTrack.getMinBufferSize(
                 sampleRate,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT
-            ).coerceAtLeast(sampleRate)
+            ).coerceAtLeast(sampleRate / 2)
 
             val audioTrack = try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -222,7 +227,7 @@ class AudioPlaybackManager(private val context: Context) {
                         .setAudioAttributes(
                             AudioAttributes.Builder()
                                 .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                                 .build()
                         )
                         .setAudioFormat(
@@ -247,14 +252,16 @@ class AudioPlaybackManager(private val context: Context) {
                     )
                 }
             } catch (e: Exception) {
-                Log.e("AudioPlaybackManager", "Could not initialize AudioTrack: ${e.message}")
+                Log.e("AudioPlaybackManager", "Could not create AudioTrack: ${e.message}")
                 null
             }
 
             synthAudioTrack = audioTrack
             audioTrack?.play()
 
-            val chunkDurationSec = 0.1
+            // Harmonious soft acoustic notes sequence (C5, E5, G5, C6) with natural acoustic decay
+            val notes = listOf(523.25, 659.25, 783.99, 1046.50, 783.99, 659.25)
+            val chunkDurationSec = 0.05
             val chunkSamples = (sampleRate * chunkDurationSec).toInt()
             val chunkBuffer = ShortArray(chunkSamples)
             var generatedSamples = 0
@@ -263,15 +270,19 @@ class AudioPlaybackManager(private val context: Context) {
                 val tOffset = generatedSamples.toDouble() / sampleRate
                 for (i in 0 until chunkSamples) {
                     val t = tOffset + (i.toDouble() / sampleRate)
-                    // Synthesize rich vocal harmonic acoustic speech frequencies (320Hz fundamental with 640Hz harmonic & vibrato modulation)
-                    val baseFreq = 340.0 + 40.0 * sin(2.0 * Math.PI * 2.5 * t)
-                    val f1 = sin(2.0 * Math.PI * baseFreq * t)
-                    val f2 = 0.5 * sin(2.0 * Math.PI * (baseFreq * 1.8) * t)
-                    val f3 = 0.25 * sin(2.0 * Math.PI * (baseFreq * 2.4) * t)
-                    
-                    // Human voice cadence envelope (cadence pulses)
-                    val voiceEnvelope = (0.5 + 0.5 * sin(2.0 * Math.PI * 3.2 * t)).coerceIn(0.2, 1.0)
-                    val sampleValue = ((f1 + f2 + f3) * voiceEnvelope * 0.45 * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                    val noteIndex = ((t * 2.0).toInt()) % notes.size
+                    val noteFreq = notes[noteIndex]
+                    val noteTime = t % 0.5
+
+                    // Smooth exponential decay envelope per chime note
+                    val env = exp(-4.5 * noteTime) * (1.0 - exp(-30.0 * noteTime)).coerceIn(0.0, 1.0)
+                    val fundamental = sin(2.0 * Math.PI * noteFreq * t)
+                    val harmonic2 = 0.25 * sin(2.0 * Math.PI * (noteFreq * 2.0) * t)
+                    val harmonic3 = 0.08 * sin(2.0 * Math.PI * (noteFreq * 3.0) * t)
+
+                    val sampleValue = ((fundamental + harmonic2 + harmonic3) * env * 0.35 * Short.MAX_VALUE)
+                        .toInt()
+                        .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                     chunkBuffer[i] = sampleValue.toShort()
                 }
 
@@ -282,7 +293,7 @@ class AudioPlaybackManager(private val context: Context) {
                 scope.launch(Dispatchers.Main) {
                     onProgress(progress)
                 }
-                delay(100)
+                delay(40)
             }
 
             scope.launch(Dispatchers.Main) {
@@ -333,3 +344,4 @@ class AudioPlaybackManager(private val context: Context) {
         stopAudio()
     }
 }
+

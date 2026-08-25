@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
             val topUpRequests by viewModel.topUpRequests.collectAsStateWithLifecycle()
             val notifications by viewModel.notifications.collectAsStateWithLifecycle()
             val unreadCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
+            val unreadMessagesCount by viewModel.unreadMessagesCount.collectAsStateWithLifecycle()
             val chatMessages by viewModel.activeChatMessages.collectAsStateWithLifecycle(initialValue = emptyList())
             val requestedTrips by viewModel.requestedTrips.collectAsStateWithLifecycle()
             val allChatMessages by viewModel.allChatMessages.collectAsStateWithLifecycle()
@@ -185,7 +186,8 @@ class MainActivity : ComponentActivity() {
                                     currentRoute = currentScreen,
                                     onTabSelected = { tab -> viewModel.setScreen(tab.route) },
                                     language = language,
-                                    isAdmin = isAdminLoggedIn
+                                    isAdmin = isAdminLoggedIn,
+                                    unreadMessagesCount = unreadMessagesCount
                                 )
                             }
                         }
