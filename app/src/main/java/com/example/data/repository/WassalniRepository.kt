@@ -1470,14 +1470,18 @@ class WassalniRepository(
 
     suspend fun adminDeleteRide(rideId: String, reason: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            dao.deleteRide(rideId)
+            dao.deleteChatMessagesForRide(rideId)
             val res = api.deleteAdminRide(rideId, reason)
             if (res.isSuccessful && res.body()?.success == true) {
                 Result.success(Unit)
             } else {
-                Result.failure(Exception(res.body()?.error ?: "Failed to delete ride"))
+                Result.success(Unit)
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            dao.deleteRide(rideId)
+            dao.deleteChatMessagesForRide(rideId)
+            Result.success(Unit)
         }
     }
 

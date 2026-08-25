@@ -64,6 +64,8 @@ class MainActivity : ComponentActivity() {
             val unreadCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
             val chatMessages by viewModel.activeChatMessages.collectAsStateWithLifecycle(initialValue = emptyList())
             val requestedTrips by viewModel.requestedTrips.collectAsStateWithLifecycle()
+            val allChatMessages by viewModel.allChatMessages.collectAsStateWithLifecycle()
+            val deletedChatRideIds by viewModel.deletedChatRideIds.collectAsStateWithLifecycle()
 
             val isImpersonating by viewModel.isImpersonating.collectAsStateWithLifecycle()
             val impersonatedUser by viewModel.impersonatedUser.collectAsStateWithLifecycle()
@@ -325,26 +327,29 @@ class MainActivity : ComponentActivity() {
                                         "messages" -> MessagesScreen(
                                             ride = selectedRide,
                                             messages = chatMessages,
-                                            allRides = allRides,
+                                            allRides = allRides.filter { it.id !in deletedChatRideIds },
+                                            allChatMessages = allChatMessages,
                                             language = language,
                                             currentUserId = viewModel.activeUserId.value.ifBlank { viewModel.currentUserId },
                                             onSelectConversation = { r -> viewModel.selectRide(r) },
                                             onSendMessage = { text, img, audio, audioDuration, isLoc ->
                                                 val rideId = selectedRide?.id ?: "ride_1"
+                                                val targetReceiver = if (selectedRide?.driverId == viewModel.currentUserId) "passenger_id" else (selectedRide?.driverId ?: "driver_id")
                                                 viewModel.sendChatMessage(
                                                     rideId = rideId,
                                                     text = text,
                                                     imageUri = img,
                                                     audioUri = audio,
                                                     audioDuration = audioDuration,
-                                                    isLocation = isLoc
+                                                    isLocation = isLoc,
+                                                    receiverId = targetReceiver
                                                 )
                                             },
                                             onDeleteConversation = { rideId ->
                                                 viewModel.deleteChatConversation(rideId)
                                             },
                                             onDeleteMessage = { messageId ->
-                                                viewModel.deleteChatMessage(messageId)
+                                                viewModel.deleteChatMessage(selectedRide?.id ?: "", messageId)
                                             },
                                             onSendPaymentReminder = {
                                                 val rideId = selectedRide?.id ?: "ride_1"

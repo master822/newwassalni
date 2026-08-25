@@ -65,6 +65,7 @@ fun MessagesScreen(
     ride: RideEntity?,
     messages: List<ChatMessageEntity>,
     allRides: List<RideEntity>,
+    allChatMessages: List<ChatMessageEntity> = emptyList(),
     language: AppLanguage,
     currentUserId: String = "user_current",
     onSelectConversation: (RideEntity) -> Unit,
@@ -103,24 +104,39 @@ fun MessagesScreen(
         }
     }
 
-    // Build list of active conversations from available rides
-    val conversationsList = remember(allRides) {
+    // Build list of active conversations from available rides and dynamic DB messages
+    val conversationsList = remember(allRides, allChatMessages) {
         if (allRides.isNotEmpty()) {
             allRides.mapIndexed { index, r ->
+                val rideMsgs = allChatMessages.filter { it.rideId == r.id }.sortedBy { it.timestamp }
+                val lastMsg = rideMsgs.lastOrNull()
+                val lastMsgText = when {
+                    lastMsg == null -> when (index % 4) {
+                        0 -> "أهلاً بك! جاهز للانطلاق من نقطة التجمع المحددة."
+                        1 -> "السيارة مكيفة ومريحة ومجهزة بالكامل."
+                        2 -> "مرحباً، هل لديك حقائب أو أمتعة إضافية؟"
+                        else -> "موعدنا غداً في الوقت المحدد إن شاء الله."
+                    }
+                    lastMsg.audioUri != null -> "🎙️ تسجيل صوتي (${lastMsg.audioDurationSeconds} ث)"
+                    lastMsg.imageUri != null -> "📷 صورة مرفقة"
+                    lastMsg.isLocation -> "📍 مشاركة الموقع الجغرافي"
+                    else -> lastMsg.messageText
+                }
+                val lastMsgTime = if (lastMsg != null) {
+                    SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(lastMsg.timestamp))
+                } else {
+                    "${(7 + (index * 2)) % 12 + 1}:30 م"
+                }
+                val unread = rideMsgs.count { it.receiverId == currentUserId && it.senderId != currentUserId }
                 ConversationItem(
                     ride = r,
                     contactName = r.driverName,
                     contactAvatar = r.driverAvatar,
                     contactRole = if (r.isWomenOnly) "سائقة (رحلة نسائية)" else "سائق معتمد",
                     contactRating = r.driverRating,
-                    lastMessage = when (index % 4) {
-                        0 -> "أهلاً بك! جاهز للانطلاق من نقطة التجمع المحددة."
-                        1 -> "السيارة مكيفة ومريحة ومجهزة بالكامل."
-                        2 -> "مرحباً، هل لديك حقائب أو أمتعة إضافية؟"
-                        else -> "موعدنا غداً في الوقت المحدد إن شاء الله."
-                    },
-                    lastTime = "${(7 + (index * 2)) % 12 + 1}:30 م",
-                    unreadCount = if (index == 0) 1 else 0
+                    lastMessage = lastMsgText,
+                    lastTime = lastMsgTime,
+                    unreadCount = if (unread > 0) unread else if (index == 0) 1 else 0
                 )
             }
         } else {

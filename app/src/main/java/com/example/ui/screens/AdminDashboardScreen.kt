@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,6 +33,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import coil.compose.AsyncImage
 import com.example.data.model.*
 import com.example.ui.components.GlassCard
@@ -103,6 +107,7 @@ fun AdminDashboardScreen(
 
     var rideToCancel by remember { mutableStateOf<RideEntity?>(null) }
     var cancelRideReasonText by remember { mutableStateOf("") }
+    var rideToDelete by remember { mutableStateOf<RideEntity?>(null) }
 
     var rideToEdit by remember { mutableStateOf<RideEntity?>(null) }
     var editRideStartCity by remember { mutableStateOf("") }
@@ -325,20 +330,8 @@ fun AdminDashboardScreen(
                                     selectedRideChatRoom = selectedRideChatRoom,
                                     onSelectRideRoom = { selectedRideChatRoom = it },
                                     onDeleteRoom = { rideId ->
-                                        viewModel.deleteChatRoom(rideId)
-                                        Toast.makeText(context, "تم تفريغ وحذف رسائل المحادثة", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onDeleteMessage = { msgId ->
-                                        viewModel.deleteChatMessage(selectedRideChatRoom ?: "", msgId)
-                                        Toast.makeText(context, "تم حذف الرسالة بنجاح", Toast.LENGTH_SHORT).show()
-                                    },
-                                    onEditMessage = { msg ->
-                                        messageToEdit = msg
-                                        editMessageNewText = msg.messageText
-                                    },
-                                    onSendAdminMessage = { rideId, senderId, senderName, text, img, isSys ->
-                                        viewModel.sendAdminChatMessage(rideId, senderId, senderName, text, img, isSys)
-                                        Toast.makeText(context, "تم إرسال الرسالة", Toast.LENGTH_SHORT).show()
+                                        viewModel.deleteChatConversation(rideId)
+                                        Toast.makeText(context, "تم حذف وتفريغ المحادثة بنجاح", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             }
@@ -364,6 +357,7 @@ fun AdminDashboardScreen(
                                         editRidePrice = r.pricePerSeat.toString()
                                         editRideSeats = r.availableSeats.toString()
                                     },
+                                    onDeleteRide = { r -> rideToDelete = r },
                                     onCancelRide = { r -> rideToCancel = r }
                                 )
                             }
@@ -988,7 +982,7 @@ fun AdminDashboardScreen(
                             viewModel.cancelRideByAdmin(ride.id, cancelRideReasonText)
                             rideToCancel = null
                             cancelRideReasonText = ""
-                            Toast.makeText(context, "تم إلغاء الرحلة وإشعار الركاب والسائق", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "تم إلغاء وحذف الرحلة وإشعار السائق", Toast.LENGTH_SHORT).show()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
@@ -997,6 +991,44 @@ fun AdminDashboardScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { rideToCancel = null }) { Text("تراجع") }
+                }
+            )
+        }
+
+        // Delete Ride Permanently Dialog
+        rideToDelete?.let { ride ->
+            AlertDialog(
+                onDismissRequest = { rideToDelete = null },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Filled.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Text("حذف الرحلة نهائياً", fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Text(
+                        "هل أنت متأكد من حذف رحلة (${ride.startCity} ➔ ${ride.endCity}) للسائق ${ride.driverName} نهائياً؟ سيتم مسحها بالكامل من التطبيق وقاعدة البيانات.",
+                        fontSize = 13.5.sp,
+                        lineHeight = 20.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.adminDeleteRide(ride.id)
+                            rideToDelete = null
+                            Toast.makeText(context, "تم حذف الرحلة نهائياً من النظام", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("تأكيد الحذف", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { rideToDelete = null }) { Text("إلغاء") }
                 }
             )
         }
@@ -1424,58 +1456,232 @@ private fun AdminUsersSubPage(
     }
 }
 
-// 2. Chat Control Sub-Page
+// 2. Chat Control & Monitoring Sub-Page (Read-Only monitoring as requested)
 @Composable
 private fun AdminChatControlSubPage(
     allRides: List<RideEntity>,
     allChatMessages: List<ChatMessageEntity>,
     selectedRideChatRoom: String?,
     onSelectRideRoom: (String?) -> Unit,
-    onDeleteRoom: (String) -> Unit,
-    onDeleteMessage: (String) -> Unit,
-    onEditMessage: (ChatMessageEntity) -> Unit,
-    onSendAdminMessage: (rideId: String, senderId: String, senderName: String, text: String, img: String?, isSystem: Boolean) -> Unit
+    onDeleteRoom: (String) -> Unit
 ) {
     val context = LocalContext.current
-    var adminMessageText by remember { mutableStateOf("") }
-    var adminAttachedImageUri by remember { mutableStateOf<String?>(null) }
-    var adminSenderRole by remember { mutableStateOf("ADMIN") }
+    var searchQuery by remember { mutableStateOf("") }
+    var roomToDelete by remember { mutableStateOf<RideEntity?>(null) }
+    var playingAudioId by remember { mutableStateOf<String?>(null) }
 
     val activeRide = allRides.find { it.id == selectedRideChatRoom }
 
-    if (selectedRideChatRoom == null) {
-        // List of all conversations
-        if (allChatMessages.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("لا توجد رسائل محادثة في النظام بعد", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // Dialog for confirming conversation deletion in Admin panel
+    if (roomToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { roomToDelete = null },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Filled.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Text("حذف وتفريغ المحادثة", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Text(
+                    "هل أنت متأكد من مسح جميع رسائل محادثة (${roomToDelete?.startCity} ➔ ${roomToDelete?.endCity}) نهائياً من النظام وقائمة المحادثات؟",
+                    fontSize = 13.5.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        roomToDelete?.let { r ->
+                            onDeleteRoom(r.id)
+                            if (selectedRideChatRoom == r.id) {
+                                onSelectRideRoom(null)
+                            }
+                        }
+                        roomToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("نعم، حذف نهائي", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { roomToDelete = null }) {
+                    Text("إلغاء", fontSize = 12.sp)
+                }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 90.dp)
+        )
+    }
+
+    if (selectedRideChatRoom == null) {
+        // List of all conversations with Search
+        val filteredRides = allRides.filter { ride ->
+            ride.startCity.contains(searchQuery, ignoreCase = true) ||
+            ride.endCity.contains(searchQuery, ignoreCase = true) ||
+            ride.driverName.contains(searchQuery, ignoreCase = true)
+        }
+
+        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("بحث في المحادثات بالمدينة أو اسم المستخدم...", fontSize = 12.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = PrimaryGreen) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "مسح", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true
+            )
+
+            // Info Card about Read-Only Monitoring
+            Surface(
+                color = PrimaryGreen.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                items(allRides) { ride ->
-                    val rideMsgs = allChatMessages.filter { it.rideId == ride.id }
-                    if (rideMsgs.isNotEmpty()) {
-                        val lastMsg = rideMsgs.last()
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Filled.Visibility, contentDescription = null, tint = DarkGreen, modifier = Modifier.size(18.dp))
+                    Text(
+                        text = "اضغط على أي محادثة لمراقبتها وقراءة محتواها وسجل رسائلها بالكامل.",
+                        fontSize = 11.5.sp,
+                        color = DarkGreen,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            if (filteredRides.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("لا توجد محادثات مطابقة للبحث", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 90.dp)
+                ) {
+                    items(filteredRides, key = { it.id }) { ride ->
+                        val rideMsgs = allChatMessages.filter { it.rideId == ride.id }.sortedBy { it.timestamp }
+                        val lastMsg = rideMsgs.lastOrNull()
+                        val lastMsgText = when {
+                            lastMsg == null -> "محادثة جاهزة للتواصل"
+                            lastMsg.audioUri != null -> "🎙️ تسجيل صوتي (${lastMsg.audioDurationSeconds} ث)"
+                            lastMsg.imageUri != null -> "📷 صورة مرفقة"
+                            else -> lastMsg.messageText
+                        }
+
+                        val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                        val lastTimeStr = if (lastMsg != null) timeFormat.format(Date(lastMsg.timestamp)) else ride.departureDate
+
                         GlassCard(
-                            modifier = Modifier.fillMaxWidth().clickable { onSelectRideRoom(ride.id) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectRideRoom(ride.id) },
                             cornerRadius = 14.dp
                         ) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("${ride.startCity} ➔ ${ride.endCity}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Surface(color = PrimaryGreen.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
-                                        Text("${rideMsgs.size} رسائل", fontSize = 10.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        if (!ride.driverAvatar.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = ride.driverAvatar,
+                                                contentDescription = ride.driverName,
+                                                modifier = Modifier.size(40.dp).clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier.size(40.dp).clip(CircleShape).background(PrimaryGreen.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Filled.DirectionsCar, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(22.dp))
+                                            }
+                                        }
+                                        Column {
+                                            Text(
+                                                text = if (ride.id.startsWith("chat_user_")) "محادثة مباشرة: ${ride.driverName}" else "${ride.startCity} ➔ ${ride.endCity}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = "السائق / الطرف: ${ride.driverName} • $lastTimeStr",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        color = if (rideMsgs.isNotEmpty()) PrimaryGreen.copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${rideMsgs.size} رسائل",
+                                            fontSize = 10.sp,
+                                            color = if (rideMsgs.isNotEmpty()) PrimaryGreen else Color.Gray,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
                                     }
                                 }
-                                Text("السائق: ${ride.driverName} • التاريخ: ${ride.departureDate}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("آخر رسالة: ${lastMsg.messageText}", fontSize = 12.sp, color = Color.Gray, maxLines = 1)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = lastMsgText,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Button(
+                                            onClick = { onSelectRideRoom(ride.id) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Visibility, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("قراءة المحتوى", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        IconButton(
+                                            onClick = { roomToDelete = ride },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Outlined.Delete, contentDescription = "حذف المحادثة", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1483,160 +1689,225 @@ private fun AdminChatControlSubPage(
             }
         }
     } else {
-        // Inspected chat room full control
-        val currentRoomMsgs = allChatMessages.filter { it.rideId == selectedRideChatRoom }
+        // =========================================================================
+        // READ-ONLY CHAT VIEWER (Only reading conversation content as requested)
+        // =========================================================================
+        val currentRoomMsgs = allChatMessages.filter { it.rideId == selectedRideChatRoom }.sortedBy { it.timestamp }
 
         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("محادثة: ${activeRide?.startCity} ➔ ${activeRide?.endCity}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = PrimaryGreen)
-                OutlinedButton(
-                    onClick = { onDeleteRoom(selectedRideChatRoom) },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            // Room Top Header with Read-Only Badge
+            GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text("تفريغ المحادثة", fontSize = 10.sp)
-                }
-            }
-
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(currentRoomMsgs) { msg ->
-                    val isSystem = msg.senderId == "system"
-                    val isAdmin = msg.senderId == "admin" || msg.senderId == "super_admin"
-
-                    GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 10.dp) {
-                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(
-                                        if (isAdmin) Icons.Filled.AdminPanelSettings else if (isSystem) Icons.Filled.Info else Icons.Filled.Person,
-                                        contentDescription = null,
-                                        tint = if (isAdmin) GoldAccent else if (isSystem) Color.Blue else PrimaryGreen,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = if (isAdmin) "مدير النظام (Admin)" else if (isSystem) "تنبيه النظام" else "مرسل: ${msg.senderId}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isAdmin) PrimaryGreen else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    IconButton(onClick = { onEditMessage(msg) }, modifier = Modifier.size(24.dp)) {
-                                        Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = PrimaryGreen, modifier = Modifier.size(14.dp))
-                                    }
-                                    IconButton(onClick = { onDeleteMessage(msg.id) }, modifier = Modifier.size(24.dp)) {
-                                        Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
-                                    }
-                                }
-                            }
-
-                            if (msg.imageUri != null) {
-                                AsyncImage(
-                                    model = msg.imageUri,
-                                    contentDescription = "Message Image",
-                                    modifier = Modifier.size(120.dp, 80.dp).clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-
-                            Text(msg.messageText, fontSize = 12.sp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        FilledTonalIconButton(
+                            onClick = { onSelectRideRoom(null) },
+                            modifier = Modifier.size(36.dp),
+                            shape = CircleShape
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", modifier = Modifier.size(18.dp))
                         }
-                    }
-                }
-            }
-
-            // Sender Role Selector & Input Bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("إرسال كـ:", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                val roles = listOf("ADMIN" to "أدمن", "SYSTEM" to "نظام", "DRIVER" to "سائق", "PASSENGER" to "راكب")
-                roles.forEach { (key, label) ->
-                    FilterChip(
-                        selected = adminSenderRole == key,
-                        onClick = { adminSenderRole = key },
-                        label = { Text(label, fontSize = 9.sp) }
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                IconButton(
-                    onClick = {
-                        val sampleImages = listOf(
-                            "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957",
-                            "https://images.unsplash.com/photo-1508921912186-1d1a45ebb3c1"
-                        )
-                        adminAttachedImageUri = sampleImages.random()
-                        Toast.makeText(context, "تم إرفاق صورة", Toast.LENGTH_SHORT).show()
-                    }
-                ) {
-                    Icon(Icons.Filled.Image, contentDescription = "Attach", tint = PrimaryGreen)
-                }
-
-                OutlinedTextField(
-                    value = adminMessageText,
-                    onValueChange = { adminMessageText = it },
-                    placeholder = { Text("اكتب رسالة كمدير النظام...", fontSize = 11.sp) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(20.dp)
-                )
-
-                IconButton(
-                    onClick = {
-                        if (adminMessageText.isNotBlank() || adminAttachedImageUri != null) {
-                            val senderId = when (adminSenderRole) {
-                                "SYSTEM" -> "system"
-                                "DRIVER" -> activeRide?.driverId ?: "driver_id"
-                                "PASSENGER" -> "passenger_id"
-                                else -> "super_admin"
-                            }
-                            val senderName = when (adminSenderRole) {
-                                "SYSTEM" -> "تنبيه النظام"
-                                "DRIVER" -> activeRide?.driverName ?: "السائق"
-                                "PASSENGER" -> "الراكب"
-                                else -> "مدير النظام"
-                            }
-
-                            onSendAdminMessage(
-                                selectedRideChatRoom,
-                                senderId,
-                                senderName,
-                                adminMessageText,
-                                adminAttachedImageUri,
-                                adminSenderRole == "SYSTEM"
+                        Column {
+                            Text(
+                                text = if (activeRide?.id?.startsWith("chat_user_") == true) "محادثة: ${activeRide.driverName}" else "${activeRide?.startCity} ➔ ${activeRide?.endCity}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = PrimaryGreen
                             )
-                            adminMessageText = ""
-                            adminAttachedImageUri = null
+                            Text(
+                                text = "السائق: ${activeRide?.driverName ?: "مستخدم"} • تاريخ الرحلة: ${activeRide?.departureDate ?: ""}",
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
+
+                    Surface(
+                        color = WarningAmber.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Filled.Visibility, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(13.dp))
+                            Text("وضع القراءة والرقابة فقط", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = WarningAmber)
+                        }
+                    }
+                }
+            }
+
+            // Message List Box
+            if (currentRoomMsgs.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Send, contentDescription = "Send", tint = PrimaryGreen)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Filled.ChatBubbleOutline, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(36.dp))
+                        Text("لا توجد رسائل مسجلة بعد في هذه المحادثة", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(currentRoomMsgs, key = { it.id }) { msg ->
+                        val isSystem = msg.senderId == "system"
+                        val isAdmin = msg.senderId == "admin" || msg.senderId == "super_admin"
+                        val isDriver = msg.senderId == activeRide?.driverId
+                        val isAudio = !msg.audioUri.isNullOrBlank() || msg.audioDurationSeconds > 0
+
+                        val timeFormat = SimpleDateFormat("h:mm a • dd MMM", Locale.getDefault())
+                        val timeStr = timeFormat.format(Date(msg.timestamp))
+
+                        GlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            cornerRadius = 10.dp
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Icon(
+                                            when {
+                                                isAdmin -> Icons.Filled.AdminPanelSettings
+                                                isSystem -> Icons.Filled.Info
+                                                isDriver -> Icons.Filled.DirectionsCar
+                                                else -> Icons.Filled.Person
+                                            },
+                                            contentDescription = null,
+                                            tint = when {
+                                                isAdmin -> GoldAccent
+                                                isSystem -> Color.Blue
+                                                isDriver -> PrimaryGreen
+                                                else -> TrueBlue
+                                            },
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = when {
+                                                isAdmin -> "مدير النظام (Admin)"
+                                                isSystem -> "تنبيه تلقائي من النظام"
+                                                isDriver -> "السائق: ${activeRide?.driverName}"
+                                                else -> "الطرف الآخر / الراكب (ID: ${msg.senderId})"
+                                            },
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = when {
+                                                isAdmin -> PrimaryGreen
+                                                isDriver -> DarkGreen
+                                                else -> MaterialTheme.colorScheme.onSurface
+                                            }
+                                        )
+                                    }
+
+                                    Text(
+                                        text = timeStr,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                if (isAudio) {
+                                    val isPlaying = playingAudioId == msg.id
+                                    val duration = msg.audioDurationSeconds.takeIf { it > 0 } ?: 8
+
+                                    Surface(
+                                        color = PrimaryGreen.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    playingAudioId = if (isPlaying) null else msg.id
+                                                    if (!isPlaying) {
+                                                        Toast.makeText(context, "تشغيل التسجيل الصوتي ($duration ثانية)", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.size(32.dp).background(PrimaryGreen, CircleShape)
+                                            ) {
+                                                Icon(
+                                                    if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                                    contentDescription = "تشغيل التسجيل",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("تسجيل صوتي 🎙️ ($duration ثانية)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkGreen)
+                                                Text(if (isPlaying) "جاري الاستماع..." else "انقر للاستماع إلى التسجيل الصوتي", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (!msg.imageUri.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = msg.imageUri,
+                                        contentDescription = "Message Image",
+                                        modifier = Modifier.size(160.dp, 100.dp).clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+
+                                if (msg.messageText.isNotBlank() && (!isAudio || msg.messageText != "تسجيل صوتي (${msg.audioDurationSeconds} ثانية)")) {
+                                    Text(
+                                        text = msg.messageText,
+                                        fontSize = 12.5.sp,
+                                        lineHeight = 18.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Informational Read-Only Footer Banner (Explicitly confirming no other actions can be done here)
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "هذا القسم مخصص للرقابة وقراءة محتوى المحادثات فقط دون تعديل أو إرسال.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }
@@ -1743,55 +2014,102 @@ private fun AdminTopUpSubPage(
 private fun AdminRidesSubPage(
     allRides: List<RideEntity>,
     onEditRide: (RideEntity) -> Unit,
+    onDeleteRide: (RideEntity) -> Unit,
     onCancelRide: (RideEntity) -> Unit
 ) {
-    if (allRides.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("لا توجد رحلات منشورة في النظام حالياً", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 90.dp)
-        ) {
-            items(allRides) { ride ->
-                GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("${ride.startCity} ➔ ${ride.endCity}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("$${ride.pricePerSeat} / مقعد", fontWeight = FontWeight.Bold, color = PrimaryGreen, fontSize = 13.sp)
-                        }
-                        Text("السائق: ${ride.driverName} • ${ride.departureDate} ${ride.departureTime}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("المقاعد المتبقية: ${ride.availableSeats} • السيارة: ${ride.carModel} (${ride.carPlate})", fontSize = 11.sp)
+    var searchQuery by remember { mutableStateOf("") }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { onEditRide(ride) },
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f)
+    val filteredRides = allRides.filter { ride ->
+        ride.startCity.contains(searchQuery, ignoreCase = true) ||
+        ride.endCity.contains(searchQuery, ignoreCase = true) ||
+        ride.driverName.contains(searchQuery, ignoreCase = true) ||
+        ride.carModel.contains(searchQuery, ignoreCase = true)
+    }
+
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Search bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("بحث في الرحلات بالمدينة أو السائق أو نوع السيارة...", fontSize = 12.sp) },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = PrimaryGreen) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Filled.Clear, contentDescription = "مسح", modifier = Modifier.size(16.dp))
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            singleLine = true
+        )
+
+        if (filteredRides.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = if (allRides.isEmpty()) "لا توجد رحلات منشورة في النظام حالياً" else "لا توجد رحلات مطابقة للبحث",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 90.dp)
+            ) {
+                items(filteredRides, key = { it.id }) { ride ->
+                    GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("تعديل الرحلة", fontSize = 11.sp)
+                                Text("${ride.startCity} ➔ ${ride.endCity}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("$${ride.pricePerSeat} / مقعد", fontWeight = FontWeight.Bold, color = PrimaryGreen, fontSize = 13.sp)
                             }
+                            Text("السائق: ${ride.driverName} • ${ride.departureDate} ${ride.departureTime}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("المقاعد المتبقية: ${ride.availableSeats} • السيارة: ${ride.carModel} (${ride.carPlate})", fontSize = 11.sp)
 
-                            Button(
-                                onClick = { onCancelRide(ride) },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(Icons.Filled.Cancel, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("إلغاء الرحلة", fontSize = 11.sp, color = Color.White)
+                                OutlinedButton(
+                                    onClick = { onEditRide(ride) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("تعديل", fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = { onCancelRide(ride) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WarningAmber),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Filled.Cancel, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("إلغاء", fontSize = 11.sp, color = Color.White)
+                                }
+
+                                Button(
+                                    onClick = { onDeleteRide(ride) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Filled.DeleteForever, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("حذف نهائي", fontSize = 11.sp, color = Color.White)
+                                }
                             }
                         }
                     }
@@ -1891,49 +2209,233 @@ private fun AdminBroadcastSubPage(
     onTypeChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
+    val templates = listOf(
+        Triple(
+            "تحديث التطبيق 🚀",
+            "تحديث جديد لتطبيق وسلني متوفر الآن!",
+            "تم تحسين سرعة الحجز وإضافة ميزات جديدة لتسهيل رحلاتكم اليومية. نتمنى لكم تجربة مميزة!"
+        ),
+        Triple(
+            "مكافأة شحن 🎁",
+            "عرض خاص: نقاط إضافية على كل عملية شحن!",
+            "اشحن محفظتك الآن عبر شام كاش واحصل على 20% نقاط إضافية مجانية لفترة محدودة."
+        ),
+        Triple(
+            "تنبيه السائقين ⏱️",
+            "تنبيه هام بخصوص مواعيد الانطلاق ونقاط التجمع",
+            "نرجو من جميع الكباتن الالتزام بنقاط الانطلاق والمواعيد المحددة لضمان أعلى تقييم ورضا الركاب."
+        ),
+        Triple(
+            "صيانة مجدولة 🛠️",
+            "صيانة دورية لتحسين كفاءة النظام",
+            "سيتم إجراء صيانة سريعة لتحسين أداء الخوادم لمدة 15 دقيقة الليلة. شكراً لتعاونكم معنا."
+        )
+    )
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(bottom = 90.dp)
     ) {
+        // Quick Templates Section
         item {
             GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("إرسال إشعار فوري (Push Notification)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(18.dp))
+                        Text("قوالب إشعارات سريعة جاهزة:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        templates.take(2).forEach { (lbl, t, b) ->
+                            OutlinedButton(
+                                onClick = {
+                                    onTitleChange(t)
+                                    onBodyChange(b)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.weight(1f).height(38.dp)
+                            ) {
+                                Text(lbl, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        templates.drop(2).forEach { (lbl, t, b) ->
+                            OutlinedButton(
+                                onClick = {
+                                    onTitleChange(t)
+                                    onBodyChange(b)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.weight(1f).height(38.dp)
+                            ) {
+                                Text(lbl, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Broadcast Form Card
+        item {
+            GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Filled.Campaign, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(22.dp))
+                            Text("إرسال بث جماعي فوري", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        Surface(color = PrimaryGreen.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
+                            Text("إشعار Push", fontSize = 10.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+
+                    // Target Audience
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("الجمهور المستهدف للبث:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val audiences = listOf(
+                                Triple("ALL", "الجميع", Icons.Filled.Groups),
+                                Triple("DRIVERS", "السائقين", Icons.Filled.DirectionsCar),
+                                Triple("PASSENGERS", "الركاب", Icons.Filled.Person)
+                            )
+                            audiences.forEach { (key, label, icon) ->
+                                val isSelected = audience == key
+                                Surface(
+                                    onClick = { onAudienceChange(key) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) PrimaryGreen else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                    modifier = Modifier.weight(1f).height(44.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            icon,
+                                            contentDescription = null,
+                                            tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            label,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Notification Type
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("نوع الإشعار والتصنيف:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val types = listOf(
+                                "GENERAL" to "عام",
+                                "ALERT" to "تنبيه هام",
+                                "PROMO" to "عرض ترويجي",
+                                "SYSTEM" to "نظام"
+                            )
+                            types.forEach { (key, label) ->
+                                FilterChip(
+                                    selected = type == key,
+                                    onClick = { onTypeChange(key) },
+                                    label = { Text(label, fontSize = 10.5.sp) },
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Title
                     OutlinedTextField(
                         value = title,
                         onValueChange = onTitleChange,
-                        label = { Text("عنوان الإشعار") },
-                        placeholder = { Text("مثال: تحديث جديد أو مكافأة شحن") },
-                        modifier = Modifier.fillMaxWidth()
+                        label = { Text("عنوان الإشعار الجماعي") },
+                        placeholder = { Text("مثال: تحديث أمني أو مكافأة شحن جديدة...") },
+                        leadingIcon = { Icon(Icons.Filled.Title, contentDescription = null, tint = PrimaryGreen) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
                     )
 
+                    // Body
                     OutlinedTextField(
                         value = body,
                         onValueChange = onBodyChange,
-                        label = { Text("نص الإشعار") },
-                        placeholder = { Text("اكتب الرسالة التي ستصل لجميع المستخدمين...") },
+                        label = { Text("محتوى ونص الإشعار") },
+                        placeholder = { Text("اكتب تفاصيل الرسالة التي ستصل لجميع المستخدمين في مركز الإشعارات وهواتفهم...") },
+                        leadingIcon = { Icon(Icons.Filled.Notes, contentDescription = null, tint = PrimaryGreen) },
                         modifier = Modifier.fillMaxWidth(),
-                        minLines = 3
+                        shape = RoundedCornerShape(12.dp),
+                        minLines = 3,
+                        maxLines = 5
                     )
 
-                    Text("الجمهور المستهدف:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = audience == "ALL", onClick = { onAudienceChange("ALL") }, label = { Text("جميع المستخدمين") })
-                        FilterChip(selected = audience == "DRIVERS", onClick = { onAudienceChange("DRIVERS") }, label = { Text("السائقين فقط") })
-                        FilterChip(selected = audience == "PASSENGERS", onClick = { onAudienceChange("PASSENGERS") }, label = { Text("الركاب فقط") })
+                    // Info banner
+                    Surface(
+                        color = PrimaryGreen.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, PrimaryGreen.copy(alpha = 0.2f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Filled.Info, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(18.dp))
+                            Text(
+                                "سيتم تسليم هذا الإشعار فوراً في هواتف المستخدمين وحفظه في مركز الإشعارات الخاص بهم مع إمكانية قراءته بالكامل.",
+                                fontSize = 11.sp,
+                                color = DarkGreen,
+                                lineHeight = 16.sp
+                            )
+                        }
                     }
 
+                    // Send Button
                     Button(
                         onClick = onSend,
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
-                        Icon(Icons.Filled.Send, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("إرسال الإشعار الجماعي الفوري", color = Color.White, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Filled.Send, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "إرسال البث الجماعي الفوري الآن",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
                     }
                 }
             }

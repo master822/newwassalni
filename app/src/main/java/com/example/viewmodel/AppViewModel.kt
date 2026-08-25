@@ -176,6 +176,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (ride != null) dao.getChatMessages(ride.id) else flowOf(emptyList())
     }
 
+    private val _deletedChatRideIds = MutableStateFlow<Set<String>>(emptySet())
+    val deletedChatRideIds: StateFlow<Set<String>> = _deletedChatRideIds.asStateFlow()
+
     init {
         viewModelScope.launch {
             try {
@@ -838,12 +841,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             val currentUid = activeUserId.value.ifBlank { currentUserId }
+            val formattedText = text.ifBlank {
+                if (audioUri != null) "تسجيل صوتي ($audioDuration ثانية)"
+                else if (imageUri != null) "صورة مرفقة"
+                else "رسالة"
+            }
             val localMsg = ChatMessageEntity(
                 id = "msg_${UUID.randomUUID().toString().substring(0, 8)}",
                 rideId = rideId,
                 senderId = currentUid,
                 receiverId = receiverId,
-                messageText = text,
+                messageText = formattedText,
                 imageUri = imageUri,
                 audioUri = audioUri,
                 audioDurationSeconds = audioDuration,
@@ -853,10 +861,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // Immediately insert locally for instantaneous UI response
             dao.insertChatMessage(localMsg)
 
+            // If message is directed to another user or admin, send an instant local Notification
+            if (receiverId.isNotBlank() && receiverId != currentUid && receiverId != "all") {
+                val notifTitle = if (isAdminLoggedIn.value || currentUid.contains("admin", ignoreCase = true)) {
+                    "رسالة جديدة من إدارة وسلني 💬"
+                } else {
+                    "رسالة جديدة في المحادثة 💬"
+                }
+                val notifBody = if (audioUri != null) "أرسل لك تسجيلاً صوتياً 🎙️ ($audioDuration ث)" else if (imageUri != null) "أرسل لك صورة مرفقة 📷" else formattedText
+                val notif = NotificationEntity(
+                    id = "notif_msg_${UUID.randomUUID().toString().substring(0, 8)}",
+                    userId = receiverId,
+                    title = notifTitle,
+                    message = notifBody,
+                    type = "CHAT",
+                    timestamp = System.currentTimeMillis()
+                )
+                dao.insertNotification(notif)
+            }
+
             // Sync with backend
             repository.sendChatMessage(
                 rideId = rideId,
-                text = text,
+                text = formattedText,
                 imageUri = imageUri,
                 audioUri = audioUri,
                 audioDuration = audioDuration,
@@ -869,6 +896,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun startDirectChatWithUser(user: UserEntity) {
         viewModelScope.launch {
             val directChatId = "chat_user_${user.id}"
+            // Un-delete if previously deleted
+            _deletedChatRideIds.value = _deletedChatRideIds.value - directChatId
+            
             val directRide = RideEntity(
                 id = directChatId,
                 driverId = user.id,
@@ -943,8 +973,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteChatConversation(rideId: String) {
         viewModelScope.launch {
+            _deletedChatRideIds.value = _deletedChatRideIds.value + rideId
             dao.deleteChatMessagesForRide(rideId)
+            if (rideId.startsWith("chat_")) {
+                dao.deleteRide(rideId)
+            }
+            if (_selectedRide.value?.id == rideId) {
+                _selectedRide.value = null
+            }
             repository.deleteChatConversation(rideId)
+            addAdminActivityLog("حذف محادثة", "تم حذف وحجب المحادثة $rideId نهائياً")
         }
     }
 
@@ -952,6 +990,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             dao.deleteChatMessage(messageId)
             repository.deleteChatMessage(messageId)
+        }
+    }
+
+    fun sendAdminChatMessage(
+        rideId: String,
+        senderId: String,
+        senderName: String,
+        text: String,
+        imageUri: String? = null,
+        isSystem: Boolean = false
+    ) {
+        viewModelScope.launch {
+            val formattedText = text.ifBlank {
+                if (imageUri != null) "صورة مرفقة" else "رسالة إدارية"
+            }
+            val localMsg = ChatMessageEntity(
+                id = "admin_msg_${UUID.randomUUID().toString().substring(0, 8)}",
+                rideId = rideId,
+                senderId = senderId,
+                receiverId = "all",
+                messageText = formattedText,
+                imageUri = imageUri,
+                audioUri = null,
+                audioDurationSeconds = 0,
+                isLocation = false,
+                timestamp = System.currentTimeMillis()
+            )
+            dao.insertChatMessage(localMsg)
+            repository.sendChatMessage(
+                rideId = rideId,
+                text = formattedText,
+                imageUri = imageUri,
+                audioUri = null,
+                audioDuration = 0,
+                isLocation = false,
+                receiverId = "all"
+            )
+            addAdminActivityLog("إرسال رسالة في محادثة", "تم إرسال رسالة في غرفة $rideId باسم $senderName")
         }
     }
 
@@ -1178,28 +1254,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun adminDeleteRide(rideId: String) {
         viewModelScope.launch {
+            val ride = dao.getRideById(rideId)
             dao.deleteRide(rideId)
+            dao.deleteChatMessagesForRide(rideId)
+            _deletedChatRideIds.value = _deletedChatRideIds.value + rideId
+            if (_selectedRide.value?.id == rideId) {
+                _selectedRide.value = null
+            }
             repository.adminDeleteRide(rideId, "حذف إداري نهائي")
-            addAdminActivityLog("حذف رحلة نهائياً", "تم حذف الرحلة $rideId من قاعدة البيانات")
+            if (ride != null) {
+                val notif = NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = ride.driverId,
+                    title = "حذف رحلة من قبل الإدارة",
+                    message = "تم حذف رحلتك (${ride.startCity} إلى ${ride.endCity}) من قبل إدارة التطبيق.",
+                    type = NotificationType.SYSTEM.name,
+                    timestamp = System.currentTimeMillis()
+                )
+                dao.insertNotification(notif)
+            }
+            addAdminActivityLog("حذف رحلة نهائياً", "تم حذف الرحلة $rideId من قاعدة البيانات نهائياً")
         }
     }
 
     fun cancelRideByAdmin(rideId: String, reason: String) {
         viewModelScope.launch {
-            dao.updateRideStatus(rideId, RideStatus.CANCELLED.name)
-            repository.adminDeleteRide(rideId, reason)
             val ride = dao.getRideById(rideId)
+            dao.deleteRide(rideId)
+            dao.deleteChatMessagesForRide(rideId)
+            _deletedChatRideIds.value = _deletedChatRideIds.value + rideId
+            if (_selectedRide.value?.id == rideId) {
+                _selectedRide.value = null
+            }
+            repository.adminDeleteRide(rideId, reason)
             if (ride != null) {
                 val notif = NotificationEntity(
                     id = UUID.randomUUID().toString(),
                     userId = ride.driverId,
-                    title = "إلغاء رحلة من قبل الإدارة",
-                    message = "تم إلغاء رحلتك المتجهة إلى ${ride.endCity} من قبل الأدمن. السبب: $reason",
-                    type = NotificationType.SYSTEM.name
+                    title = "إلغاء وحذف رحلة من قبل الإدارة",
+                    message = "تم إلغاء وحذف رحلتك (${ride.startCity} إلى ${ride.endCity}) من قبل إدارة التطبيق. السبب: ${reason.ifBlank { "إلغاء إداري" }}",
+                    type = NotificationType.SYSTEM.name,
+                    timestamp = System.currentTimeMillis()
                 )
                 dao.insertNotification(notif)
             }
-            addAdminActivityLog("إلغاء رحلة", "تم إلغاء الرحلة $rideId بواسطة الأدمن بسبب: $reason")
+            addAdminActivityLog("إلغاء وحذف رحلة", "تم إلغاء وحذف الرحلة $rideId بواسطة الأدمن بسبب: $reason")
         }
     }
 
@@ -1279,36 +1378,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteChatRoom(rideId: String) {
-        viewModelScope.launch {
-            dao.deleteChatMessagesForRide(rideId)
-            repository.adminClearChatRoom(rideId)
-            addAdminActivityLog("تفريغ محادثة رحلة", "تم حذف جميع رسائل الرحلة $rideId")
-        }
-    }
-
-    fun sendAdminChatMessage(
-        rideId: String,
-        senderId: String,
-        senderName: String,
-        messageText: String,
-        imageUri: String? = null,
-        isSystem: Boolean = false
-    ) {
-        viewModelScope.launch {
-            val msg = ChatMessageEntity(
-                id = UUID.randomUUID().toString(),
-                rideId = rideId,
-                senderId = senderId,
-                receiverId = "all",
-                messageText = messageText,
-                imageUri = imageUri,
-                isLocation = false,
-                isPaymentReminder = false
-            )
-            dao.insertChatMessage(msg)
-            repository.adminSendChatMessage(rideId, messageText)
-            addAdminActivityLog("إرسال رسالة كأدمن", "إرسال رسالة للرحلة $rideId")
-        }
+        deleteChatConversation(rideId)
     }
 
     fun sendBroadcastNotification(
@@ -1319,15 +1389,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             repository.adminBroadcast(title, message, targetAudience)
-            // Also insert local notification for current user so it's instantly visible
-            val notif = NotificationEntity(
-                id = UUID.randomUUID().toString(),
-                userId = currentUserId,
-                title = title,
-                message = message,
-                type = NotificationType.SYSTEM.name
-            )
-            dao.insertNotification(notif)
+            val allUsers = dao.getAllUsers().first()
+            val targetUsers = when (targetAudience) {
+                "DRIVERS" -> allUsers.filter { it.userRole.contains("DRIVER", ignoreCase = true) }
+                "PASSENGERS" -> allUsers.filter { it.userRole.contains("PASSENGER", ignoreCase = true) }
+                else -> allUsers
+            }
+            targetUsers.forEach { u ->
+                val notif = NotificationEntity(
+                    id = "notif_bc_${UUID.randomUUID().toString().substring(0, 8)}",
+                    userId = u.id,
+                    title = title,
+                    message = message,
+                    type = type,
+                    timestamp = System.currentTimeMillis()
+                )
+                dao.insertNotification(notif)
+            }
+            if (targetUsers.none { it.id == currentUserId }) {
+                val notif = NotificationEntity(
+                    id = "notif_bc_${UUID.randomUUID().toString().substring(0, 8)}",
+                    userId = currentUserId,
+                    title = title,
+                    message = message,
+                    type = type,
+                    timestamp = System.currentTimeMillis()
+                )
+                dao.insertNotification(notif)
+            }
             addAdminActivityLog("إرسال إشعار جماعي", "العنوان: $title | الفئة: $targetAudience")
         }
     }
