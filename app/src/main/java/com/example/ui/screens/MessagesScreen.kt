@@ -183,15 +183,28 @@ fun MessagesScreen(
         }
     }
 
-    val filteredConversations = conversationsList.filter {
-        it.contactName.contains(searchQuery, ignoreCase = true) ||
-                it.ride.startCity.contains(searchQuery, ignoreCase = true) ||
-                it.ride.endCity.contains(searchQuery, ignoreCase = true)
+    var selectedFilterTab by remember { mutableIntStateOf(0) } // 0: All, 1: Unread, 2: Active
+
+    val filteredConversations = remember(conversationsList, searchQuery, selectedFilterTab) {
+        conversationsList.filter { item ->
+            val matchesSearch = if (searchQuery.isBlank()) true else {
+                item.contactName.contains(searchQuery, ignoreCase = true) ||
+                        item.ride.startCity.contains(searchQuery, ignoreCase = true) ||
+                        item.ride.endCity.contains(searchQuery, ignoreCase = true) ||
+                        item.ride.carModel.contains(searchQuery, ignoreCase = true)
+            }
+            val matchesTab = when (selectedFilterTab) {
+                1 -> item.unreadCount > 0
+                2 -> !item.ride.id.startsWith("chat_user_")
+                else -> true
+            }
+            matchesSearch && matchesTab
+        }
     }
 
     if (ride == null) {
         // ==========================================
-        // Mode 1: Conversations List View
+        // Mode 1: Conversations List View (قائمة المحادثات فقط بدون عرض المحتوى)
         // ==========================================
         Column(
             modifier = modifier
@@ -214,9 +227,9 @@ fun MessagesScreen(
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    val totalUnread = filteredConversations.sumOf { it.unreadCount }
+                    val totalUnread = conversationsList.sumOf { it.unreadCount }
                     Text(
-                        text = if (totalUnread > 0) "لديك $totalUnread رسائل جديدة غير مقروءة 🔴" else "تواصل مباشرة وفورياً مع السائقين والركاب",
+                        text = if (totalUnread > 0) "لديك $totalUnread رسائل جديدة غير مقروءة 🔴" else "قائمة المحادثات المباشرة مع السائقين والركاب",
                         fontSize = 12.sp,
                         fontWeight = if (totalUnread > 0) FontWeight.Bold else FontWeight.Normal,
                         color = if (totalUnread > 0) ErrorRed else MaterialTheme.colorScheme.onSurfaceVariant
@@ -239,7 +252,7 @@ fun MessagesScreen(
                                 .background(PrimaryGreen)
                         )
                         Text(
-                            text = "${filteredConversations.size} محادثة",
+                            text = "${conversationsList.size} محادثة",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = PrimaryGreen
@@ -248,13 +261,13 @@ fun MessagesScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Search Bar for conversations
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("ابحث عن محادثة بالاسم أو المدينة...") },
+                placeholder = { Text("ابحث عن محادثة بالاسم أو مسار الرحلة...") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = PrimaryGreen) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -274,7 +287,64 @@ fun MessagesScreen(
                     .testTag("conversation_search_field")
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Filter Tabs: All, Unread, Active Rides
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val totalUnread = conversationsList.count { it.unreadCount > 0 }
+                FilterChip(
+                    selected = selectedFilterTab == 0,
+                    onClick = { selectedFilterTab = 0 },
+                    label = { Text("الكل (${conversationsList.size})", fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = PrimaryGreen,
+                        selectedLabelColor = Color.White
+                    )
+                )
+
+                FilterChip(
+                    selected = selectedFilterTab == 1,
+                    onClick = { selectedFilterTab = 1 },
+                    label = { 
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("غير مقروءة", fontSize = 12.sp)
+                            if (totalUnread > 0) {
+                                Surface(
+                                    color = if (selectedFilterTab == 1) Color.White else ErrorRed,
+                                    shape = CircleShape
+                                ) {
+                                    Text(
+                                        text = "$totalUnread",
+                                        color = if (selectedFilterTab == 1) ErrorRed else Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = ErrorRed,
+                        selectedLabelColor = Color.White
+                    )
+                )
+
+                FilterChip(
+                    selected = selectedFilterTab == 2,
+                    onClick = { selectedFilterTab = 2 },
+                    label = { Text("رحلات نشطة", fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = PrimaryGreen,
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             if (filteredConversations.isEmpty()) {
                 Box(
@@ -302,13 +372,13 @@ fun MessagesScreen(
                             )
                         }
                         Text(
-                            text = if (searchQuery.isNotBlank()) "لا توجد محادثات تطابق بحثك" else "لا توجد محادثات حالياً",
+                            text = if (searchQuery.isNotBlank()) "لا توجد محادثات تطابق بحثك" else "لا توجد محادثات في هذا القسم",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "يمكنك فتح أي رحلة وبدء الدردشة مع السائق فوراً",
+                            text = "يمكنك فتح أي رحلة وبدء الدردشة والتواصل مع السائق",
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             fontSize = 12.sp
                         )
@@ -326,7 +396,7 @@ fun MessagesScreen(
                             onClick = { onSelectConversation(item.ride) },
                             shape = RoundedCornerShape(20.dp),
                             color = if (hasUnread) PrimaryGreen.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
-                            border = if (hasUnread) BorderStroke(1.5.dp, ErrorRed.copy(alpha = 0.7f)) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                            border = if (hasUnread) BorderStroke(1.5.dp, ErrorRed.copy(alpha = 0.8f)) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
                             tonalElevation = if (hasUnread) 4.dp else 2.dp,
                             shadowElevation = if (hasUnread) 2.dp else 1.dp,
                             modifier = Modifier
@@ -397,7 +467,7 @@ fun MessagesScreen(
                                     }
                                 }
 
-                                // Details column
+                                // Details column (بدون عرض نص المحتوى - فقط بيانات المحادثة والرحلة)
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -430,6 +500,7 @@ fun MessagesScreen(
                                             }
                                         }
 
+                                        // Time & Unread Badge Pill
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -441,7 +512,6 @@ fun MessagesScreen(
                                                 color = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
 
-                                            // Prominent Red Dot / Badge Pill
                                             if (hasUnread) {
                                                 Surface(
                                                     color = ErrorRed,
@@ -459,7 +529,7 @@ fun MessagesScreen(
                                                                 .background(Color.White)
                                                         )
                                                         Text(
-                                                            text = "${item.unreadCount}",
+                                                            text = "${item.unreadCount} جديدة",
                                                             color = Color.White,
                                                             fontSize = 10.5.sp,
                                                             fontWeight = FontWeight.ExtraBold
@@ -472,7 +542,7 @@ fun MessagesScreen(
 
                                     Spacer(modifier = Modifier.height(4.dp))
 
-                                    // Route pill
+                                    // Route pill with Vehicle info
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -508,28 +578,24 @@ fun MessagesScreen(
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.height(5.dp))
+                                    Spacer(modifier = Modifier.height(6.dp))
 
-                                    // Last message snippet with unread red dot
+                                    // Direct Enter Chat CTA (بدون عرض محتوى الرسائل)
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        if (hasUnread) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(8.dp)
-                                                    .clip(CircleShape)
-                                                    .background(ErrorRed)
-                                            )
-                                        }
+                                        Icon(
+                                            Icons.Filled.ChatBubbleOutline,
+                                            contentDescription = null,
+                                            tint = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(13.dp)
+                                        )
                                         Text(
-                                            text = item.lastMessage,
-                                            fontSize = 12.5.sp,
-                                            fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (hasUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            modifier = Modifier.weight(1f)
+                                            text = if (hasUnread) "انقر لعرض المحادثة والرسائل الواردة" else "انقر لفتح المحادثة والمراسلة",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                         )
                                     }
                                 }

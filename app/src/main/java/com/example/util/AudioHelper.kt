@@ -158,9 +158,10 @@ class AudioPlaybackManager(private val context: Context) {
         currentlyPlayingUri = uriString
 
         val file = File(uriString)
-        val hasLocalFile = file.exists() && file.length() > 500
+        val hasLocalFile = file.exists() && file.length() > 100
+        val isContentUri = uriString.startsWith("content://") || uriString.startsWith("android.resource://")
 
-        if (hasLocalFile) {
+        if (hasLocalFile || isContentUri) {
             try {
                 val player = MediaPlayer().apply {
                     setAudioAttributes(
@@ -169,14 +170,21 @@ class AudioPlaybackManager(private val context: Context) {
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .build()
                     )
-                    setDataSource(file.absolutePath)
+                    if (isContentUri) {
+                        setDataSource(context, Uri.parse(uriString))
+                    } else {
+                        val fis = java.io.FileInputStream(file)
+                        setDataSource(fis.fd)
+                        fis.close()
+                    }
                     prepare()
                     setVolume(1.0f, 1.0f)
                     setOnCompletionListener {
                         stopAudio()
                         onCompletion()
                     }
-                    setOnErrorListener { _, _, _ ->
+                    setOnErrorListener { _, what, extra ->
+                        Log.w("AudioPlaybackManager", "MediaPlayer error: what=$what extra=$extra, playing acoustic voice")
                         playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
                         true
                     }
@@ -188,20 +196,22 @@ class AudioPlaybackManager(private val context: Context) {
                     val durationMs = player.duration.takeIf { it > 0 } ?: (durationSeconds * 1000)
                     while (isActive && currentlyPlayingUri == uriString) {
                         try {
-                            val pos = player.currentPosition
-                            onProgress((pos.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f))
+                            if (player.isPlaying) {
+                                val pos = player.currentPosition
+                                onProgress((pos.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f))
+                            }
                         } catch (e: Exception) {
                             break
                         }
-                        delay(60)
+                        delay(50)
                     }
                 }
             } catch (e: Exception) {
-                Log.w("AudioPlaybackManager", "MediaPlayer error on $uriString: ${e.message}, using clear harmonic chime")
+                Log.w("AudioPlaybackManager", "MediaPlayer error on $uriString: ${e.message}, playing clear acoustic voice")
                 playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
             }
         } else {
-            // Play clear, pleasant melodic acoustic voice tone
+            // Play clear acoustic voice note
             playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
         }
     }
