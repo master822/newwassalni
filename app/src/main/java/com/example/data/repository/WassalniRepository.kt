@@ -951,57 +951,11 @@ class WassalniRepository(
         audioUri: String? = null,
         audioDuration: Int = 0,
         isLocation: Boolean = false,
-        receiverId: String = ""
+        receiverId: String = "",
+        existingMessage: ChatMessageEntity? = null
     ): Result<ChatMessageEntity> = withContext(Dispatchers.IO) {
         try {
-            val res = api.sendChatMessage(
-                rideId,
-                SendChatMessageRequest(
-                    message = text,
-                    imageUri = imageUri,
-                    audioUri = audioUri,
-                    audioDuration = audioDuration,
-                    isLocation = isLocation,
-                    latitude = null,
-                    longitude = null
-                )
-            )
-            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
-                val dto = res.body()!!.data!!
-                val entity = ChatMessageEntity(
-                    id = dto.id,
-                    rideId = dto.rideId,
-                    senderId = dto.senderId,
-                    receiverId = receiverId,
-                    messageText = dto.message,
-                    imageUri = dto.imageUri,
-                    audioUri = dto.audioUri,
-                    audioDurationSeconds = dto.audioDuration ?: audioDuration,
-                    isLocation = dto.isLocation,
-                    latitude = dto.latitude,
-                    longitude = dto.longitude
-                )
-                dao.insertChatMessage(entity)
-                Result.success(entity)
-            } else {
-                val localEntity = ChatMessageEntity(
-                    id = "msg_" + java.util.UUID.randomUUID().toString().take(8),
-                    rideId = rideId,
-                    senderId = tokenManager.getUserId() ?: "me",
-                    receiverId = receiverId,
-                    messageText = text,
-                    imageUri = imageUri,
-                    audioUri = audioUri,
-                    audioDurationSeconds = audioDuration,
-                    isLocation = isLocation,
-                    latitude = null,
-                    longitude = null
-                )
-                dao.insertChatMessage(localEntity)
-                Result.success(localEntity)
-            }
-        } catch (e: Exception) {
-            val localEntity = ChatMessageEntity(
+            val entityToReturn = existingMessage ?: ChatMessageEntity(
                 id = "msg_" + java.util.UUID.randomUUID().toString().take(8),
                 rideId = rideId,
                 senderId = tokenManager.getUserId() ?: "me",
@@ -1014,8 +968,45 @@ class WassalniRepository(
                 latitude = null,
                 longitude = null
             )
-            dao.insertChatMessage(localEntity)
-            Result.success(localEntity)
+            // If not provided externally, insert locally
+            if (existingMessage == null) {
+                dao.insertChatMessage(entityToReturn)
+            }
+
+            try {
+                api.sendChatMessage(
+                    rideId,
+                    SendChatMessageRequest(
+                        message = text,
+                        imageUri = imageUri,
+                        audioUri = audioUri,
+                        audioDuration = audioDuration,
+                        isLocation = isLocation,
+                        latitude = null,
+                        longitude = null
+                    )
+                )
+            } catch (ignored: Exception) {}
+
+            Result.success(entityToReturn)
+        } catch (e: Exception) {
+            val fallback = existingMessage ?: ChatMessageEntity(
+                id = "msg_" + java.util.UUID.randomUUID().toString().take(8),
+                rideId = rideId,
+                senderId = tokenManager.getUserId() ?: "me",
+                receiverId = receiverId,
+                messageText = text,
+                imageUri = imageUri,
+                audioUri = audioUri,
+                audioDurationSeconds = audioDuration,
+                isLocation = isLocation,
+                latitude = null,
+                longitude = null
+            )
+            if (existingMessage == null) {
+                dao.insertChatMessage(fallback)
+            }
+            Result.success(fallback)
         }
     }
 

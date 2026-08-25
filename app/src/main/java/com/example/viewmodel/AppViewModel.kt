@@ -133,9 +133,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .catch { emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allRides: StateFlow<List<RideEntity>> = dao.getAllRides()
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _deletedRideIds = MutableStateFlow<Set<String>>(emptySet())
+    val deletedRideIds: StateFlow<Set<String>> = _deletedRideIds.asStateFlow()
+
+    private val _deletedRequestedTripIds = MutableStateFlow<Set<String>>(emptySet())
+    val deletedRequestedTripIds: StateFlow<Set<String>> = _deletedRequestedTripIds.asStateFlow()
+
+    val allRides: StateFlow<List<RideEntity>> = combine(dao.getAllRides(), _deletedRideIds) { rides, deleted ->
+        rides.filter { it.id !in deleted }
+    }.catch { emit(emptyList()) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val walletTransactions: StateFlow<List<WalletTransactionEntity>> = activeUserId.flatMapLatest { id ->
         dao.getWalletTransactions(id)
@@ -164,9 +171,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }.catch { emit(emptyList()) }
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val requestedTrips: StateFlow<List<RequestedTripEntity>> = dao.getAllRequestedTrips()
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val requestedTrips: StateFlow<List<RequestedTripEntity>> = combine(dao.getAllRequestedTrips(), _deletedRequestedTripIds) { trips, deleted ->
+        trips.filter { it.id !in deleted }
+    }.catch { emit(emptyList()) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val unreadNotificationsCount: StateFlow<Int> = notifications.map { list ->
         list.count { !it.isRead }
@@ -253,6 +261,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             seedSampleRidesIfEmpty()
             seedSampleRequestedTripsIfEmpty()
         }
+        deduplicateMessagesIfAny()
+    }
+
+    private suspend fun deduplicateMessagesIfAny() {
+        try {
+            val all = dao.getAllChatMessages().first()
+            val seen = mutableSetOf<String>()
+            for (msg in all) {
+                val timeBucket = msg.timestamp / 4000L
+                val key = "${msg.rideId}_${msg.senderId}_${msg.messageText}_${msg.audioDurationSeconds}_$timeBucket"
+                if (!seen.add(key)) {
+                    dao.deleteChatMessage(msg.id)
+                }
+            }
+        } catch (ignored: Exception) {}
     }
 
     private suspend fun seedSampleUsersIfEmpty() {
@@ -392,7 +415,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         acceptWallet = true,
                         isWomenOnly = true
                     )
-                )
+                ).filter { it.id !in _deletedRideIds.value }
                 sampleRides.forEach { dao.insertRide(it) }
             }
         } catch (e: Exception) {
@@ -809,6 +832,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteRequestedTrip(requestId: String) {
         viewModelScope.launch {
+            _deletedRequestedTripIds.value = _deletedRequestedTripIds.value + requestId
             dao.deleteRequestedTrip(requestId)
             dao.deleteRide("ride_from_req_$requestId")
             repository.deleteRequestedTrip(requestId)
@@ -880,7 +904,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 dao.insertNotification(notif)
             }
 
-            // Sync with backend
+            // Sync with backend without duplicate insertion
             repository.sendChatMessage(
                 rideId = rideId,
                 text = formattedText,
@@ -888,7 +912,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 audioUri = audioUri,
                 audioDuration = audioDuration,
                 isLocation = isLocation,
-                receiverId = receiverId
+                receiverId = receiverId,
+                existingMessage = localMsg
             )
         }
     }
@@ -1254,6 +1279,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun adminDeleteRide(rideId: String) {
         viewModelScope.launch {
+            _deletedRideIds.value = _deletedRideIds.value + rideId
             val ride = dao.getRideById(rideId)
             dao.deleteRide(rideId)
             dao.deleteChatMessagesForRide(rideId)
@@ -1279,6 +1305,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelRideByAdmin(rideId: String, reason: String) {
         viewModelScope.launch {
+            _deletedRideIds.value = _deletedRideIds.value + rideId
             val ride = dao.getRideById(rideId)
             dao.deleteRide(rideId)
             dao.deleteChatMessagesForRide(rideId)

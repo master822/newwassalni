@@ -39,6 +39,7 @@ import java.util.Locale
 import coil.compose.AsyncImage
 import com.example.data.model.*
 import com.example.ui.components.GlassCard
+import com.example.util.AudioPlaybackManager
 import com.example.ui.components.normalizeSyrianPhoneNumber
 import com.example.ui.theme.*
 import com.example.viewmodel.AppViewModel
@@ -1471,6 +1472,13 @@ private fun AdminChatControlSubPage(
     var playingAudioId by remember { mutableStateOf<String?>(null) }
 
     val activeRide = allRides.find { it.id == selectedRideChatRoom }
+    val audioPlaybackManager = remember { AudioPlaybackManager(context) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            audioPlaybackManager.release()
+        }
+    }
 
     // Dialog for confirming conversation deletion in Admin panel
     if (roomToDelete != null) {
@@ -1844,9 +1852,18 @@ private fun AdminChatControlSubPage(
                                         ) {
                                             IconButton(
                                                 onClick = {
-                                                    playingAudioId = if (isPlaying) null else msg.id
-                                                    if (!isPlaying) {
-                                                        Toast.makeText(context, "تشغيل التسجيل الصوتي ($duration ثانية)", Toast.LENGTH_SHORT).show()
+                                                    if (isPlaying) {
+                                                        audioPlaybackManager.stopAudio()
+                                                        playingAudioId = null
+                                                    } else {
+                                                        playingAudioId = msg.id
+                                                        audioPlaybackManager.playAudio(
+                                                            uriString = msg.audioUri ?: "voice_${msg.id}.m4a",
+                                                            durationSeconds = duration,
+                                                            onProgress = {},
+                                                            onCompletion = { playingAudioId = null },
+                                                            onError = { playingAudioId = null }
+                                                        )
                                                     }
                                                 },
                                                 modifier = Modifier.size(32.dp).background(PrimaryGreen, CircleShape)

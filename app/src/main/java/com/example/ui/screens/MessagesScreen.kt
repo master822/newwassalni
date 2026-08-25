@@ -44,6 +44,8 @@ import com.example.data.model.ChatMessageEntity
 import com.example.data.model.RideEntity
 import com.example.ui.components.RatingDialog
 import com.example.ui.theme.*
+import com.example.util.AudioPlaybackManager
+import com.example.util.AudioRecordManager
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -78,6 +80,16 @@ fun MessagesScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val audioRecordManager = remember { AudioRecordManager(context) }
+    val audioPlaybackManager = remember { AudioPlaybackManager(context) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            audioPlaybackManager.stopAudio()
+            audioRecordManager.cancelRecording()
+        }
+    }
+
     var searchQuery by remember { mutableStateOf("") }
     var messageText by remember { mutableStateOf("") }
     var attachedImage by remember { mutableStateOf<String?>(null) }
@@ -105,38 +117,37 @@ fun MessagesScreen(
     }
 
     // Build list of active conversations from available rides and dynamic DB messages
-    val conversationsList = remember(allRides, allChatMessages) {
+    val conversationsList = remember(allRides, allChatMessages, currentUserId) {
         if (allRides.isNotEmpty()) {
-            allRides.mapIndexed { index, r ->
+            allRides.map { r ->
                 val rideMsgs = allChatMessages.filter { it.rideId == r.id }.sortedBy { it.timestamp }
                 val lastMsg = rideMsgs.lastOrNull()
+                val unread = rideMsgs.count { it.receiverId == currentUserId && it.senderId != currentUserId }
+                
                 val lastMsgText = when {
-                    lastMsg == null -> when (index % 4) {
-                        0 -> "أهلاً بك! جاهز للانطلاق من نقطة التجمع المحددة."
-                        1 -> "السيارة مكيفة ومريحة ومجهزة بالكامل."
-                        2 -> "مرحباً، هل لديك حقائب أو أمتعة إضافية؟"
-                        else -> "موعدنا غداً في الوقت المحدد إن شاء الله."
-                    }
-                    lastMsg.audioUri != null -> "🎙️ تسجيل صوتي (${lastMsg.audioDurationSeconds} ث)"
-                    lastMsg.imageUri != null -> "📷 صورة مرفقة"
-                    lastMsg.isLocation -> "📍 مشاركة الموقع الجغرافي"
-                    else -> lastMsg.messageText
+                    rideMsgs.isEmpty() -> "انقر للتواصل وبدء المحادثة 💬"
+                    unread > 0 -> "💬 رسالة جديدة واردة (انقر للفتح)"
+                    lastMsg?.audioUri != null || (lastMsg?.audioDurationSeconds ?: 0) > 0 -> "🎙️ تسجيل صوتي (${lastMsg?.audioDurationSeconds ?: 0} ث)"
+                    lastMsg?.imageUri != null -> "📷 صورة مرفقة"
+                    lastMsg?.isLocation == true -> "📍 مشاركة الموقع"
+                    else -> "محادثة نشطة • انقر لعرض الرسائل"
                 }
+
                 val lastMsgTime = if (lastMsg != null) {
                     SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(lastMsg.timestamp))
                 } else {
-                    "${(7 + (index * 2)) % 12 + 1}:30 م"
+                    r.departureDate
                 }
-                val unread = rideMsgs.count { it.receiverId == currentUserId && it.senderId != currentUserId }
+
                 ConversationItem(
                     ride = r,
                     contactName = r.driverName,
                     contactAvatar = r.driverAvatar,
-                    contactRole = if (r.isWomenOnly) "سائقة (رحلة نسائية)" else "سائق معتمد",
+                    contactRole = if (r.isWomenOnly) "سائقة (رحلة نسائية)" else if (r.id.startsWith("chat_user_")) "محادثة مباشرة" else "سائق معتمد",
                     contactRating = r.driverRating,
                     lastMessage = lastMsgText,
                     lastTime = lastMsgTime,
-                    unreadCount = if (unread > 0) unread else if (index == 0) 1 else 0
+                    unreadCount = unread
                 )
             }
         } else {
@@ -491,21 +502,8 @@ fun MessagesScreen(
         // ==========================================
         val listState = rememberLazyListState()
 
-        val displayMessages = remember(messages, ride) {
-            if (messages.isEmpty()) {
-                listOf(
-                    ChatMessageEntity(
-                        id = "msg_welcome_${ride.id}",
-                        rideId = ride.id,
-                        senderId = ride.driverId,
-                        receiverId = currentUserId,
-                        messageText = "مرحباً بك! أنا ${ride.driverName}، سائق رحلة ${ride.startCity} إلى ${ride.endCity}. يسعدني الرد على أي استفسار حول نقطة التجمع والأمتعة.",
-                        timestamp = System.currentTimeMillis()
-                    )
-                )
-            } else {
-                messages
-            }
+        val displayMessages = remember(messages) {
+            messages
         }
 
         // Recording timer effect
@@ -516,28 +514,6 @@ fun MessagesScreen(
                     kotlinx.coroutines.delay(1000)
                     recordingDurationSeconds++
                 }
-            }
-        }
-
-        // Voice Message interactive playback effect
-        LaunchedEffect(playingAudioId) {
-            val currentAudio = playingAudioId
-            if (currentAudio != null) {
-                val matchedMsg = displayMessages.find { it.id == currentAudio }
-                val targetDuration = if ((matchedMsg?.audioDurationSeconds ?: 0) > 0) matchedMsg!!.audioDurationSeconds else 6
-                val stepTime = 100L
-                val totalSteps = (targetDuration * 10).coerceAtLeast(1)
-                for (step in 1..totalSteps) {
-                    if (playingAudioId != currentAudio) break
-                    audioPlaybackProgress = step.toFloat() / totalSteps.toFloat()
-                    kotlinx.coroutines.delay(stepTime)
-                }
-                if (playingAudioId == currentAudio) {
-                    playingAudioId = null
-                    audioPlaybackProgress = 0f
-                }
-            } else {
-                audioPlaybackProgress = 0f
             }
         }
 
@@ -675,6 +651,48 @@ fun MessagesScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
+                    if (displayMessages.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp, horizontal = 20.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Surface(
+                                        color = PrimaryGreen.copy(alpha = 0.12f),
+                                        shape = CircleShape,
+                                        modifier = Modifier.size(60.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Filled.ChatBubbleOutline,
+                                                contentDescription = null,
+                                                tint = PrimaryGreen,
+                                                modifier = Modifier.size(30.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "مرحباً بك في المحادثة!",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "تواصل الآن مع ${ride.driverName} عبر كتابة رسالة أو إرسال تسجيل صوتي.",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
                     items(displayMessages, key = { it.id }) { msg ->
                         val isMe = msg.senderId == currentUserId ||
                                 (currentUserId.isBlank() && msg.senderId == "user_default") ||
@@ -774,7 +792,29 @@ fun MessagesScreen(
                                             // Play / Pause Circle Button
                                             IconButton(
                                                 onClick = {
-                                                    playingAudioId = if (isPlaying) null else msg.id
+                                                    if (isPlaying) {
+                                                        audioPlaybackManager.stopAudio()
+                                                        playingAudioId = null
+                                                        audioPlaybackProgress = 0f
+                                                    } else {
+                                                        playingAudioId = msg.id
+                                                        audioPlaybackProgress = 0f
+                                                        audioPlaybackManager.playAudio(
+                                                            uriString = msg.audioUri ?: "voice_${msg.id}.m4a",
+                                                            durationSeconds = msg.audioDurationSeconds.takeIf { it > 0 } ?: 6,
+                                                            onProgress = { prog ->
+                                                                audioPlaybackProgress = prog
+                                                            },
+                                                            onCompletion = {
+                                                                playingAudioId = null
+                                                                audioPlaybackProgress = 0f
+                                                            },
+                                                            onError = {
+                                                                playingAudioId = null
+                                                                audioPlaybackProgress = 0f
+                                                            }
+                                                        )
+                                                    }
                                                 },
                                                 modifier = Modifier
                                                     .size(40.dp)
@@ -1133,6 +1173,7 @@ fun MessagesScreen(
                             ) {
                                 IconButton(
                                     onClick = {
+                                        audioRecordManager.cancelRecording()
                                         isRecordingAudio = false
                                         recordingDurationSeconds = 0
                                         Toast.makeText(context, "تم إلغاء التسجيل الصوتي", Toast.LENGTH_SHORT).show()
@@ -1208,17 +1249,19 @@ fun MessagesScreen(
                             // Send Voice Message button
                             IconButton(
                                 onClick = {
-                                    val finalDuration = recordingDurationSeconds.coerceAtLeast(1)
+                                    val recorded = audioRecordManager.stopRecording()
                                     isRecordingAudio = false
                                     recordingDurationSeconds = 0
-                                    onSendMessage(
-                                        "",
-                                        null,
-                                        "voice_note_${System.currentTimeMillis()}.m4a",
-                                        finalDuration,
-                                        false
-                                    )
-                                    Toast.makeText(context, "تم إرسال الرسالة الصوتية", Toast.LENGTH_SHORT).show()
+                                    if (recorded != null) {
+                                        onSendMessage(
+                                            "",
+                                            null,
+                                            recorded.first,
+                                            recorded.second,
+                                            false
+                                        )
+                                        Toast.makeText(context, "تم إرسال الرسالة الصوتية بنجاح 🎙️", Toast.LENGTH_SHORT).show()
+                                    }
                                 },
                                 modifier = Modifier
                                     .size(46.dp)
@@ -1278,6 +1321,7 @@ fun MessagesScreen(
                                 // WhatsApp-style Voice Recording Mic button
                                 IconButton(
                                     onClick = {
+                                        audioRecordManager.startRecording()
                                         isRecordingAudio = true
                                         recordingDurationSeconds = 0
                                     },
