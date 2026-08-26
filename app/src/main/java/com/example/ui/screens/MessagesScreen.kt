@@ -1014,6 +1014,7 @@ fun MessagesScreen(
                                                         audioPlaybackManager.playAudio(
                                                             uriString = msg.audioUri ?: "voice_${msg.id}.m4a",
                                                             durationSeconds = msg.audioDurationSeconds.takeIf { it > 0 } ?: 6,
+                                                            textFallback = msg.messageText,
                                                             onProgress = { prog ->
                                                                 audioPlaybackProgress = prog
                                                             },

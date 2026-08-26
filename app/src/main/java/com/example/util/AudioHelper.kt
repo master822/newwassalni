@@ -132,12 +132,32 @@ class AudioRecordManager(private val context: Context) {
 
 class AudioPlaybackManager(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
-    private var synthAudioTrack: AudioTrack? = null
+    private var textToSpeech: android.speech.tts.TextToSpeech? = null
+    private var isTtsReady: Boolean = false
     private var playbackJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
     var currentlyPlayingUri: String? = null
         private set
+
+    init {
+        try {
+            textToSpeech = android.speech.tts.TextToSpeech(context.applicationContext) { status ->
+                if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                    try {
+                        val arLocale = java.util.Locale("ar")
+                        val result = textToSpeech?.setLanguage(arLocale)
+                        if (result == android.speech.tts.TextToSpeech.LANG_MISSING_DATA || result == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
+                            textToSpeech?.language = java.util.Locale.getDefault()
+                        }
+                    } catch (_: Exception) {}
+                    isTtsReady = true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("AudioPlaybackManager", "TTS init exception: ${e.message}")
+        }
+    }
 
     fun isPlaying(uri: String? = null): Boolean {
         return if (uri == null) {
@@ -150,6 +170,7 @@ class AudioPlaybackManager(private val context: Context) {
     fun playAudio(
         uriString: String,
         durationSeconds: Int = 4,
+        textFallback: String? = null,
         onProgress: (Float) -> Unit = {},
         onCompletion: () -> Unit = {},
         onError: () -> Unit = {}
@@ -157,11 +178,41 @@ class AudioPlaybackManager(private val context: Context) {
         stopAudio()
         currentlyPlayingUri = uriString
 
-        val file = File(uriString)
-        val hasLocalFile = file.exists() && file.length() > 100
+        // 1. Check if Base64 Data URL or raw base64 audio
+        val isBase64 = uriString.startsWith("data:audio") ||
+                uriString.startsWith("data:") ||
+                uriString.contains(";base64,") ||
+                (uriString.length > 200 && !uriString.startsWith("http") && !uriString.startsWith("/") && !uriString.startsWith("content:"))
+
+        val resolvedFile: File? = if (isBase64) {
+            try {
+                val base64Content = if (uriString.contains(";base64,")) {
+                    uriString.substringAfter(";base64,")
+                } else if (uriString.startsWith("data:")) {
+                    uriString.substringAfter(",")
+                } else {
+                    uriString
+                }
+                val decodedBytes = android.util.Base64.decode(base64Content, android.util.Base64.DEFAULT)
+                val safeHash = Math.abs(uriString.hashCode())
+                val cacheFile = File(context.cacheDir, "voice_cache_$safeHash.m4a")
+                if (!cacheFile.exists() || cacheFile.length() != decodedBytes.size.toLong()) {
+                    cacheFile.writeBytes(decodedBytes)
+                }
+                cacheFile
+            } catch (e: Exception) {
+                Log.e("AudioPlaybackManager", "Failed to decode base64 audio: ${e.message}")
+                null
+            }
+        } else {
+            val f = File(uriString)
+            if (f.exists() && f.length() > 0) f else null
+        }
+
+        val isHttpUri = uriString.startsWith("http://") || uriString.startsWith("https://")
         val isContentUri = uriString.startsWith("content://") || uriString.startsWith("android.resource://")
 
-        if (hasLocalFile || isContentUri) {
+        if (resolvedFile != null || isHttpUri || isContentUri) {
             try {
                 val player = MediaPlayer().apply {
                     setAudioAttributes(
@@ -170,12 +221,18 @@ class AudioPlaybackManager(private val context: Context) {
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .build()
                     )
-                    if (isContentUri) {
-                        setDataSource(context, Uri.parse(uriString))
-                    } else {
-                        val fis = java.io.FileInputStream(file)
-                        setDataSource(fis.fd)
-                        fis.close()
+                    when {
+                        resolvedFile != null -> {
+                            val fis = java.io.FileInputStream(resolvedFile)
+                            setDataSource(fis.fd)
+                            fis.close()
+                        }
+                        isContentUri -> {
+                            setDataSource(context, Uri.parse(uriString))
+                        }
+                        isHttpUri -> {
+                            setDataSource(uriString)
+                        }
                     }
                     prepare()
                     setVolume(1.0f, 1.0f)
@@ -184,8 +241,13 @@ class AudioPlaybackManager(private val context: Context) {
                         onCompletion()
                     }
                     setOnErrorListener { _, what, extra ->
-                        Log.w("AudioPlaybackManager", "MediaPlayer error: what=$what extra=$extra, playing acoustic voice")
-                        playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
+                        Log.w("AudioPlaybackManager", "MediaPlayer error: what=$what extra=$extra")
+                        stopAudio()
+                        if (!textFallback.isNullOrBlank()) {
+                            playTtsSpeech(textFallback, durationSeconds, onProgress, onCompletion)
+                        } else {
+                            onError()
+                        }
                         true
                     }
                     start()
@@ -206,110 +268,61 @@ class AudioPlaybackManager(private val context: Context) {
                         delay(50)
                     }
                 }
+                return
             } catch (e: Exception) {
-                Log.w("AudioPlaybackManager", "MediaPlayer error on $uriString: ${e.message}, playing clear acoustic voice")
-                playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
+                Log.w("AudioPlaybackManager", "MediaPlayer failed on $uriString: ${e.message}")
             }
+        }
+
+        // 2. If no physical file or player failed, check if we have text to speak
+        if (!textFallback.isNullOrBlank() && isTtsReady && textToSpeech != null) {
+            playTtsSpeech(textFallback, durationSeconds, onProgress, onCompletion)
         } else {
-            // Play clear acoustic voice note
-            playPleasantMelodicVoiceNote(durationSeconds, onProgress, onCompletion)
+            // 3. Graceful simulated progress without harsh synthesizer beeps
+            playbackJob = scope.launch(Dispatchers.Main) {
+                val totalSteps = (durationSeconds.coerceIn(2, 10)) * 20
+                for (step in 1..totalSteps) {
+                    if (!isActive || currentlyPlayingUri != uriString) break
+                    onProgress(step.toFloat() / totalSteps.toFloat())
+                    delay(50)
+                }
+                stopAudio()
+                onCompletion()
+            }
         }
     }
 
-    private fun playPleasantMelodicVoiceNote(
+    private fun playTtsSpeech(
+        text: String,
         durationSeconds: Int,
         onProgress: (Float) -> Unit,
         onCompletion: () -> Unit
     ) {
-        playbackJob = scope.launch(Dispatchers.Default) {
-            val sampleRate = 44100
-            val totalSeconds = durationSeconds.coerceIn(2, 30)
-            val totalSamples = sampleRate * totalSeconds
-            val bufferSize = AudioTrack.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            ).coerceAtLeast(sampleRate / 2)
+        val tts = textToSpeech
+        if (tts == null || !isTtsReady) {
+            onCompletion()
+            return
+        }
 
-            val audioTrack = try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    AudioTrack.Builder()
-                        .setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                .build()
-                        )
-                        .setAudioFormat(
-                            AudioFormat.Builder()
-                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                .setSampleRate(sampleRate)
-                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                                .build()
-                        )
-                        .setBufferSizeInBytes(bufferSize)
-                        .setTransferMode(AudioTrack.MODE_STREAM)
-                        .build()
-                } else {
-                    @Suppress("DEPRECATION")
-                    AudioTrack(
-                        AudioManager.STREAM_MUSIC,
-                        sampleRate,
-                        AudioFormat.CHANNEL_OUT_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT,
-                        bufferSize,
-                        AudioTrack.MODE_STREAM
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e("AudioPlaybackManager", "Could not create AudioTrack: ${e.message}")
-                null
+        val utteranceId = "voice_tts_${System.currentTimeMillis()}"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        } else {
+            @Suppress("DEPRECATION")
+            val params = HashMap<String, String>()
+            params[android.speech.tts.TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID] = utteranceId
+            tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, params)
+        }
+
+        playbackJob = scope.launch(Dispatchers.Main) {
+            val totalSteps = (durationSeconds.coerceIn(2, 8)) * 20
+            for (step in 1..totalSteps) {
+                if (!isActive || currentlyPlayingUri == null) break
+                onProgress(step.toFloat() / totalSteps.toFloat())
+                delay(50)
             }
-
-            synthAudioTrack = audioTrack
-            audioTrack?.play()
-
-            // Harmonious soft acoustic notes sequence (C5, E5, G5, C6) with natural acoustic decay
-            val notes = listOf(523.25, 659.25, 783.99, 1046.50, 783.99, 659.25)
-            val chunkDurationSec = 0.05
-            val chunkSamples = (sampleRate * chunkDurationSec).toInt()
-            val chunkBuffer = ShortArray(chunkSamples)
-            var generatedSamples = 0
-
-            while (isActive && generatedSamples < totalSamples) {
-                val tOffset = generatedSamples.toDouble() / sampleRate
-                for (i in 0 until chunkSamples) {
-                    val t = tOffset + (i.toDouble() / sampleRate)
-                    val noteIndex = ((t * 2.0).toInt()) % notes.size
-                    val noteFreq = notes[noteIndex]
-                    val noteTime = t % 0.5
-
-                    // Smooth exponential decay envelope per chime note
-                    val env = exp(-4.5 * noteTime) * (1.0 - exp(-30.0 * noteTime)).coerceIn(0.0, 1.0)
-                    val fundamental = sin(2.0 * Math.PI * noteFreq * t)
-                    val harmonic2 = 0.25 * sin(2.0 * Math.PI * (noteFreq * 2.0) * t)
-                    val harmonic3 = 0.08 * sin(2.0 * Math.PI * (noteFreq * 3.0) * t)
-
-                    val sampleValue = ((fundamental + harmonic2 + harmonic3) * env * 0.35 * Short.MAX_VALUE)
-                        .toInt()
-                        .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-                    chunkBuffer[i] = sampleValue.toShort()
-                }
-
-                audioTrack?.write(chunkBuffer, 0, chunkSamples)
-                generatedSamples += chunkSamples
-
-                val progress = (generatedSamples.toFloat() / totalSamples.toFloat()).coerceIn(0f, 1f)
-                scope.launch(Dispatchers.Main) {
-                    onProgress(progress)
-                }
-                delay(40)
-            }
-
-            scope.launch(Dispatchers.Main) {
-                stopAudio()
-                onCompletion()
-            }
+            stopAudio()
+            onCompletion()
         }
     }
 
@@ -326,14 +339,8 @@ class AudioPlaybackManager(private val context: Context) {
         mediaPlayer = null
 
         try {
-            synthAudioTrack?.apply {
-                pause()
-                flush()
-                stop()
-                release()
-            }
+            textToSpeech?.stop()
         } catch (ignored: Exception) {}
-        synthAudioTrack = null
 
         currentlyPlayingUri = null
     }
@@ -352,6 +359,11 @@ class AudioPlaybackManager(private val context: Context) {
 
     fun release() {
         stopAudio()
+        try {
+            textToSpeech?.shutdown()
+        } catch (ignored: Exception) {}
+        textToSpeech = null
+        isTtsReady = false
     }
 }
 

@@ -91,7 +91,7 @@ router.put('/users/:id', async (req, res) => {
       WHERE id = $8
       RETURNING id, name, email, phone, role, is_verified, user_role, wallet_points
     `;
-    const result = await db.query(query, [
+    let result = await db.query(query, [
       name || null,
       email ? email.trim().toLowerCase() : null,
       phone ? phone.trim() : null,
@@ -101,6 +101,29 @@ router.put('/users/:id', async (req, res) => {
       walletPoints !== undefined ? parseInt(walletPoints, 10) : null,
       id,
     ]);
+
+    if (result.rows.length === 0) {
+      await db.query(
+        `INSERT INTO users (id, name, email, phone, role, user_role, wallet_points, is_verified)
+         VALUES ($1, $2, $3, $4, COALESCE($5, 'USER'), COALESCE($6, 'PASSENGER'), COALESCE($7, 50), COALESCE($8, TRUE))
+         ON CONFLICT (id) DO UPDATE SET
+           name = COALESCE(EXCLUDED.name, users.name),
+           phone = COALESCE(EXCLUDED.phone, users.phone),
+           user_role = COALESCE(EXCLUDED.user_role, users.user_role),
+           wallet_points = COALESCE(EXCLUDED.wallet_points, users.wallet_points)`,
+        [
+          id,
+          name || `مستخدم (${id})`,
+          email ? email.trim().toLowerCase() : `${id}@wasalni.app`,
+          phone ? phone.trim() : '+963900000000',
+          role || 'USER',
+          userRole || 'PASSENGER',
+          walletPoints !== undefined ? parseInt(walletPoints, 10) : 50,
+          isVerified !== undefined ? isVerified : true,
+        ]
+      );
+      result = await db.query('SELECT id, name, email, phone, role, is_verified, user_role, wallet_points FROM users WHERE id = $1', [id]);
+    }
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -191,14 +214,25 @@ router.post('/users/:id/adjust-wallet', async (req, res) => {
 
     await client.query('BEGIN');
 
-    const userRes = await client.query('SELECT name, wallet_points FROM users WHERE id = $1 FOR UPDATE', [id]);
+    let userRes = await client.query('SELECT name, wallet_points FROM users WHERE id = $1 FOR UPDATE', [id]);
+    if (userRes.rows.length === 0) {
+      // Auto-insert user in database if they were registered or seeded on client
+      await client.query(
+        `INSERT INTO users (id, name, email, phone, role, user_role, wallet_points, is_verified)
+         VALUES ($1, $2, $3, $4, 'USER', 'PASSENGER', 50, TRUE)
+         ON CONFLICT (id) DO NOTHING`,
+        [id, `مستخدم (${id})`, `${id}@wasalni.app`, '+963900000000']
+      );
+      userRes = await client.query('SELECT name, wallet_points FROM users WHERE id = $1 FOR UPDATE', [id]);
+    }
+
     if (userRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    const oldBalance = userRes.rows[0].wallet_points;
-    const newBalance = oldBalance + deltaPoints;
+    const oldBalance = userRes.rows[0].wallet_points || 0;
+    const newBalance = Math.max(0, oldBalance + deltaPoints);
 
     if (newBalance < 0) {
       await client.query('ROLLBACK');

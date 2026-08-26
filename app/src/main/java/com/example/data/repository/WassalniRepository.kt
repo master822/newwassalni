@@ -10,6 +10,7 @@ import com.example.data.network.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -1023,6 +1024,40 @@ class WassalniRepository(
             // Save locally first for instant UI response
             dao.insertChatMessage(localEntity)
 
+            // Convert local audio file to Base64 payload so remote recipients get the real audio content
+            val remoteAudioUri: String? = if (!audioUri.isNullOrBlank()) {
+                val f = File(audioUri)
+                if (f.exists() && f.isFile && f.length() > 0) {
+                    try {
+                        val bytes = f.readBytes()
+                        "data:audio/mp4;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    } catch (_: Exception) {
+                        audioUri
+                    }
+                } else {
+                    audioUri
+                }
+            } else {
+                null
+            }
+
+            // Convert local image to Base64 payload if not already a URL
+            val remoteImageUri: String? = if (!imageUri.isNullOrBlank() && !imageUri.startsWith("http") && !imageUri.startsWith("data:")) {
+                val f = File(imageUri)
+                if (f.exists() && f.isFile && f.length() > 0) {
+                    try {
+                        val bytes = f.readBytes()
+                        "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    } catch (_: Exception) {
+                        imageUri
+                    }
+                } else {
+                    imageUri
+                }
+            } else {
+                imageUri
+            }
+
             // Send to backend API
             try {
                 val currentUserName = tokenManager.getUserName()
@@ -1030,8 +1065,8 @@ class WassalniRepository(
                     rideId = rideId,
                     request = SendChatMessageRequest(
                         message = text,
-                        imageUri = imageUri,
-                        audioUri = audioUri,
+                        imageUri = remoteImageUri,
+                        audioUri = remoteAudioUri,
                         audioDuration = audioDuration,
                         isLocation = isLocation,
                         latitude = null,
@@ -1050,8 +1085,8 @@ class WassalniRepository(
                             senderId = dto.senderId,
                             receiverId = dto.receiverId ?: receiverId,
                             messageText = dto.message ?: text,
-                            imageUri = dto.imageUri,
-                            audioUri = dto.audioUri,
+                            imageUri = dto.imageUri ?: imageUri,
+                            audioUri = dto.audioUri ?: audioUri,
                             audioDurationSeconds = dto.audioDuration ?: audioDuration,
                             isLocation = dto.isLocation,
                             latitude = dto.latitude,
@@ -1315,7 +1350,24 @@ class WassalniRepository(
 
             val currentUser = dao.getUser(userId)
             val finalPoints = updatedBalance ?: ((currentUser?.walletPoints ?: 0) + points).coerceAtLeast(0)
-            dao.updateUserWalletPoints(userId, finalPoints)
+
+            if (currentUser == null) {
+                dao.insertUser(
+                    UserEntity(
+                        id = userId,
+                        name = "مستخدم ($userId)",
+                        email = "$userId@wasalni.app",
+                        phone = "+963 900 000 000",
+                        avatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300",
+                        rating = 5.0f,
+                        rideCount = 0,
+                        isVerified = true,
+                        walletPoints = finalPoints
+                    )
+                )
+            } else {
+                dao.updateUserWalletPoints(userId, finalPoints)
+            }
 
             // Insert transaction record for the user
             dao.insertWalletTransaction(
@@ -1339,6 +1391,11 @@ class WassalniRepository(
                     type = NotificationType.SYSTEM.name
                 )
             )
+
+            // Sync admin users list immediately so UI observes new values
+            try {
+                fetchAdminUsers()
+            } catch (_: Exception) {}
 
             Result.success(finalPoints)
         } catch (e: Exception) {
