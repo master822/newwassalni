@@ -253,17 +253,19 @@ data class ChatMessageDto(
     @Json(name = "id") val id: String,
     @Json(name = "ride_id") val rideId: String,
     @Json(name = "sender_id") val senderId: String,
-    @Json(name = "sender_name") val senderName: String,
+    @Json(name = "sender_name") val senderName: String? = "مستخدم",
     @Json(name = "sender_avatar") val senderAvatar: String? = "",
-    @Json(name = "message") val message: String,
-    @Json(name = "timestamp") val timestamp: String,
+    @Json(name = "message") val message: String? = "",
+    @Json(name = "timestamp") val timestamp: String? = "",
     @Json(name = "is_driver") val isDriver: Boolean = false,
     @Json(name = "image_uri") val imageUri: String? = null,
     @Json(name = "audio_uri") val audioUri: String? = null,
     @Json(name = "audio_duration") val audioDuration: Int? = 0,
     @Json(name = "is_location") val isLocation: Boolean = false,
     @Json(name = "latitude") val latitude: Double? = null,
-    @Json(name = "longitude") val longitude: Double? = null
+    @Json(name = "longitude") val longitude: Double? = null,
+    @Json(name = "receiver_id") val receiverId: String? = "",
+    @Json(name = "created_at") val createdAt: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -274,7 +276,11 @@ data class SendChatMessageRequest(
     @Json(name = "audioDuration") val audioDuration: Int? = 0,
     @Json(name = "isLocation") val isLocation: Boolean = false,
     @Json(name = "latitude") val latitude: Double? = null,
-    @Json(name = "longitude") val longitude: Double? = null
+    @Json(name = "longitude") val longitude: Double? = null,
+    @Json(name = "receiverId") val receiverId: String? = null,
+    @Json(name = "senderId") val senderId: String? = null,
+    @Json(name = "senderName") val senderName: String? = null,
+    @Json(name = "senderAvatar") val senderAvatar: String? = null
 )
 
 @JsonClass(generateAdapter = true)

@@ -56,6 +56,34 @@ function authenticateToken(req, res, next) {
 }
 
 /**
+ * Middleware: Optional Bearer JWT Access Token (Does not block unauthenticated users)
+ */
+function authenticateOptionalToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) {
+      req.user = null;
+    } else {
+      req.user = {
+        userId: decoded.userId,
+        email: decoded.email,
+        role: decoded.role || 'USER',
+        isImpersonating: decoded.isImpersonating || false,
+        realAdminId: decoded.realAdminId || null,
+      };
+    }
+    next();
+  });
+}
+
+/**
  * Middleware: Role-Based Authorization
  */
 function requireRole(...allowedRoles) {
@@ -89,6 +117,7 @@ module.exports = {
   JWT_SECRET,
   JWT_REFRESH_SECRET,
   authenticateToken,
+  authenticateOptionalToken,
   requireRole,
   requireAdmin,
   requireSuperAdmin,

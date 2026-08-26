@@ -914,6 +914,24 @@ class WassalniRepository(
     // 5. CHAT / MESSAGES
     // ==========================================================
 
+    private fun parseTimestamp(str: String?): Long {
+        if (str.isNullOrBlank()) return System.currentTimeMillis()
+        return try {
+            if (str.toLongOrNull() != null) {
+                str.toLong()
+            } else {
+                java.time.Instant.parse(str).toEpochMilli()
+            }
+        } catch (_: Exception) {
+            try {
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", java.util.Locale.US)
+                sdf.parse(str)?.time ?: System.currentTimeMillis()
+            } catch (_: Exception) {
+                System.currentTimeMillis()
+            }
+        }
+    }
+
     suspend fun syncChatMessages(rideId: String): Result<List<ChatMessageEntity>> = withContext(Dispatchers.IO) {
         try {
             val res = api.getChatMessages(rideId)
@@ -924,20 +942,52 @@ class WassalniRepository(
                         id = dto.id,
                         rideId = dto.rideId,
                         senderId = dto.senderId,
-                        receiverId = "",
-                        messageText = dto.message,
+                        receiverId = dto.receiverId ?: "",
+                        messageText = dto.message ?: "",
                         imageUri = dto.imageUri,
                         audioUri = dto.audioUri,
                         audioDurationSeconds = dto.audioDuration ?: 0,
                         isLocation = dto.isLocation,
                         latitude = dto.latitude,
-                        longitude = dto.longitude
+                        longitude = dto.longitude,
+                        timestamp = parseTimestamp(dto.createdAt ?: dto.timestamp)
                     )
                 }
                 dao.insertChatMessages(entities)
                 Result.success(entities)
             } else {
                 Result.failure(Exception("Failed to fetch chat messages"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncAllChatMessages(): Result<List<ChatMessageEntity>> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.getAllChatMessages()
+            if (res.isSuccessful && res.body()?.success == true) {
+                val dtoList = res.body()?.data ?: emptyList()
+                val entities = dtoList.map { dto ->
+                    ChatMessageEntity(
+                        id = dto.id,
+                        rideId = dto.rideId,
+                        senderId = dto.senderId,
+                        receiverId = dto.receiverId ?: "",
+                        messageText = dto.message ?: "",
+                        imageUri = dto.imageUri,
+                        audioUri = dto.audioUri,
+                        audioDurationSeconds = dto.audioDuration ?: 0,
+                        isLocation = dto.isLocation,
+                        latitude = dto.latitude,
+                        longitude = dto.longitude,
+                        timestamp = parseTimestamp(dto.createdAt ?: dto.timestamp)
+                    )
+                }
+                dao.insertChatMessages(entities)
+                Result.success(entities)
+            } else {
+                Result.failure(Exception("Failed to sync all chat messages"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -955,10 +1005,11 @@ class WassalniRepository(
         existingMessage: ChatMessageEntity? = null
     ): Result<ChatMessageEntity> = withContext(Dispatchers.IO) {
         try {
-            val entityToReturn = existingMessage ?: ChatMessageEntity(
+            val currentUid = tokenManager.getUserId() ?: "me"
+            val localEntity = existingMessage ?: ChatMessageEntity(
                 id = "msg_" + java.util.UUID.randomUUID().toString().take(8),
                 rideId = rideId,
-                senderId = tokenManager.getUserId() ?: "me",
+                senderId = currentUid,
                 receiverId = receiverId,
                 messageText = text,
                 imageUri = imageUri,
@@ -966,29 +1017,56 @@ class WassalniRepository(
                 audioDurationSeconds = audioDuration,
                 isLocation = isLocation,
                 latitude = null,
-                longitude = null
+                longitude = null,
+                timestamp = System.currentTimeMillis()
             )
-            // If not provided externally, insert locally
-            if (existingMessage == null) {
-                dao.insertChatMessage(entityToReturn)
-            }
+            // Save locally first for instant UI response
+            dao.insertChatMessage(localEntity)
 
+            // Send to backend API
             try {
-                api.sendChatMessage(
-                    rideId,
-                    SendChatMessageRequest(
+                val currentUserName = tokenManager.getUserName()
+                val resp = api.sendChatMessage(
+                    rideId = rideId,
+                    request = SendChatMessageRequest(
                         message = text,
                         imageUri = imageUri,
                         audioUri = audioUri,
                         audioDuration = audioDuration,
                         isLocation = isLocation,
                         latitude = null,
-                        longitude = null
+                        longitude = null,
+                        receiverId = receiverId,
+                        senderId = currentUid,
+                        senderName = currentUserName
                     )
                 )
-            } catch (ignored: Exception) {}
+                if (resp.isSuccessful && resp.body()?.success == true) {
+                    val dto = resp.body()?.data
+                    if (dto != null) {
+                        val serverEntity = ChatMessageEntity(
+                            id = dto.id,
+                            rideId = dto.rideId,
+                            senderId = dto.senderId,
+                            receiverId = dto.receiverId ?: receiverId,
+                            messageText = dto.message ?: text,
+                            imageUri = dto.imageUri,
+                            audioUri = dto.audioUri,
+                            audioDurationSeconds = dto.audioDuration ?: audioDuration,
+                            isLocation = dto.isLocation,
+                            latitude = dto.latitude,
+                            longitude = dto.longitude,
+                            timestamp = parseTimestamp(dto.createdAt ?: dto.timestamp)
+                        )
+                        dao.insertChatMessage(serverEntity)
+                        return@withContext Result.success(serverEntity)
+                    }
+                }
+            } catch (netErr: Exception) {
+                netErr.printStackTrace()
+            }
 
-            Result.success(entityToReturn)
+            Result.success(localEntity)
         } catch (e: Exception) {
             val fallback = existingMessage ?: ChatMessageEntity(
                 id = "msg_" + java.util.UUID.randomUUID().toString().take(8),
@@ -1001,11 +1079,10 @@ class WassalniRepository(
                 audioDurationSeconds = audioDuration,
                 isLocation = isLocation,
                 latitude = null,
-                longitude = null
+                longitude = null,
+                timestamp = System.currentTimeMillis()
             )
-            if (existingMessage == null) {
-                dao.insertChatMessage(fallback)
-            }
+            dao.insertChatMessage(fallback)
             Result.success(fallback)
         }
     }

@@ -118,6 +118,9 @@ interface ApiService {
     // ==========================================
     // 6. Messages / Chat Endpoints
     // ==========================================
+    @GET("api/messages/sync/all")
+    suspend fun getAllChatMessages(): Response<ApiResponse<List<ChatMessageDto>>>
+
     @GET("api/messages/{rideId}")
     suspend fun getChatMessages(@Path("rideId") rideId: String): Response<ApiResponse<List<ChatMessageDto>>>
 

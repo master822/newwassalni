@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.model.*
 import com.example.data.repository.WassalniRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -201,6 +203,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 syncInitialData()
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+
+        // Realtime Background Synchronization for Chat Messages & Notifications
+        viewModelScope.launch {
+            while (isActive) {
+                try {
+                    val activeRide = _selectedRide.value
+                    if (activeRide != null) {
+                        repository.syncChatMessages(activeRide.id)
+                    }
+                    repository.syncAllChatMessages()
+                    if (repository.tokenMgr.isLoggedIn()) {
+                        repository.fetchNotifications()
+                    }
+                } catch (_: Exception) {
+                }
+                delay(2500)
             }
         }
     }
@@ -668,6 +688,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _selectedRide.value = ride
         if (ride != null) {
             markChatMessagesAsRead(ride.id)
+            viewModelScope.launch {
+                repository.syncChatMessages(ride.id)
+            }
         }
     }
 
@@ -889,11 +912,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 else if (imageUri != null) "صورة مرفقة"
                 else "رسالة"
             }
+
+            // Determine actual target receiver
+            val targetReceiver = when {
+                receiverId.isNotBlank() && receiverId != "driver_id" && receiverId != "passenger_id" -> receiverId
+                rideId.startsWith("chat_user_") -> {
+                    val targetUserId = rideId.removePrefix("chat_user_")
+                    if (currentUid == targetUserId) "admin" else targetUserId
+                }
+                else -> {
+                    val ride = allRides.value.find { it.id == rideId }
+                    if (ride != null && currentUid == ride.driverId) "passenger_id" else (ride?.driverId ?: receiverId)
+                }
+            }
+
             val localMsg = ChatMessageEntity(
                 id = "msg_${UUID.randomUUID().toString().substring(0, 8)}",
                 rideId = rideId,
                 senderId = currentUid,
-                receiverId = receiverId,
+                receiverId = targetReceiver,
                 messageText = formattedText,
                 imageUri = imageUri,
                 audioUri = audioUri,
@@ -904,17 +941,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // Immediately insert locally for instantaneous UI response
             dao.insertChatMessage(localMsg)
 
-            // If message is directed to another user or admin, send an instant local Notification
-            if (receiverId.isNotBlank() && receiverId != currentUid && receiverId != "all") {
-                val notifTitle = if (isAdminLoggedIn.value || currentUid.contains("admin", ignoreCase = true)) {
-                    "رسالة جديدة من إدارة وسلني 💬"
+            // If message is directed to another user or admin, send an instant notification
+            if (targetReceiver.isNotBlank() && targetReceiver != currentUid && targetReceiver != "all") {
+                val senderUser = dao.getUser(currentUid)
+                val senderName = if (isAdminLoggedIn.value || currentUid.contains("admin", ignoreCase = true)) {
+                    "إدارة وسلني"
                 } else {
-                    "رسالة جديدة في المحادثة 💬"
+                    senderUser?.name ?: "مستخدم"
                 }
+                val notifTitle = "رسالة جديدة من $senderName 💬"
                 val notifBody = if (audioUri != null) "أرسل لك تسجيلاً صوتياً 🎙️ ($audioDuration ث)" else if (imageUri != null) "أرسل لك صورة مرفقة 📷" else formattedText
                 val notif = NotificationEntity(
                     id = "notif_msg_${UUID.randomUUID().toString().substring(0, 8)}",
-                    userId = receiverId,
+                    userId = targetReceiver,
                     title = notifTitle,
                     message = notifBody,
                     type = "CHAT",
@@ -931,7 +970,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 audioUri = audioUri,
                 audioDuration = audioDuration,
                 isLocation = isLocation,
-                receiverId = receiverId,
+                receiverId = targetReceiver,
                 existingMessage = localMsg
             )
         }
@@ -966,6 +1005,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             dao.insertRide(directRide)
             _selectedRide.value = directRide
             _currentScreen.value = "messages"
+            repository.syncChatMessages(directChatId)
             addAdminActivityLog("محادثة مع مستخدم", "بدء محادثة مباشرة مع: ${user.name} (${user.id})")
         }
     }

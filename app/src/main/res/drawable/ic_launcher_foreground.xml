@@ -3,6 +3,6 @@
     <item
         android:width="72dp"
         android:height="72dp"
-        android:drawable="@drawable/wasalni_app_icon_1787472634576"
+        android:drawable="@drawable/app_icon_wasalni_1787735992579"
         android:gravity="center" />
 </layer-list>

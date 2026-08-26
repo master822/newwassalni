@@ -128,34 +128,32 @@ fun MessagesScreen(
         }
     }
 
-    // Build list of active conversations from available rides and dynamic DB messages
+    val isUserAdmin = currentUserId.contains("admin", ignoreCase = true)
+
+    // Build list of active conversations (only those with messages, direct chats, or active rides)
     val conversationsList = remember(allRides, allChatMessages, currentUserId) {
-        if (allRides.isNotEmpty()) {
-            allRides.map { r ->
-                val rideMsgs = allChatMessages.filter { it.rideId == r.id }.sortedBy { it.timestamp }
+        val list = mutableListOf<ConversationItem>()
+        val processedRideIds = mutableSetOf<String>()
+
+        // 1. Process rides from allRides
+        for (r in allRides) {
+            val isDirectChat = r.id.startsWith("chat_user_")
+            val targetUserId = if (isDirectChat) r.id.removePrefix("chat_user_") else ""
+
+            // For regular users: do not show other users' private direct chats with admin
+            if (isDirectChat && !isUserAdmin && targetUserId != currentUserId) {
+                continue
+            }
+
+            val rideMsgs = allChatMessages.filter { it.rideId == r.id }.sortedBy { it.timestamp }
+            val hasMsgs = rideMsgs.isNotEmpty()
+
+            if (isDirectChat || hasMsgs || r.driverId == currentUserId) {
+                processedRideIds.add(r.id)
                 val lastMsg = rideMsgs.lastOrNull()
-                val unread = rideMsgs.count { !it.isRead && it.senderId != currentUserId && (it.receiverId == currentUserId || it.receiverId.isBlank() || it.receiverId == "passenger_id" || it.receiverId == "driver_id") }
-                
-                val lastMsgText = when {
-                    unread > 0 -> {
-                        when {
-                            lastMsg?.audioUri != null || (lastMsg?.audioDurationSeconds ?: 0) > 0 -> "🎙️ تسجيل صوتي جديد ($unread رسائل غير مقروءة)"
-                            lastMsg?.imageUri != null -> "📷 صورة جديدة ($unread غير مقروءة)"
-                            lastMsg?.isLocation == true -> "📍 مشاركة موقع جديدة"
-                            !lastMsg?.messageText.isNullOrBlank() -> lastMsg!!.messageText
-                            else -> "رسائل جديدة واردة لم تقرأ 💬"
-                        }
-                    }
-                    lastMsg != null -> {
-                        when {
-                            lastMsg.audioUri != null || lastMsg.audioDurationSeconds > 0 -> "🎙️ تسجيل صوتي (${lastMsg.audioDurationSeconds} ث)"
-                            lastMsg.imageUri != null -> "📷 صورة مرفقة"
-                            lastMsg.isLocation -> "📍 مشاركة الموقع"
-                            lastMsg.messageText.isNotBlank() -> lastMsg.messageText
-                            else -> "محادثة نشطة • انقر للعرض"
-                        }
-                    }
-                    else -> "انقر للتواصل وبدء المحادثة 💬"
+                val unread = rideMsgs.count {
+                    !it.isRead && it.senderId != currentUserId &&
+                            (it.receiverId == currentUserId || it.receiverId.isBlank() || (isUserAdmin && it.receiverId == "admin") || it.receiverId == "passenger_id" || it.receiverId == "driver_id")
                 }
 
                 val lastMsgTime = if (lastMsg != null) {
@@ -164,23 +162,98 @@ fun MessagesScreen(
                     r.departureDate
                 }
 
-                ConversationItem(
-                    ride = r,
-                    contactName = r.driverName,
-                    contactAvatar = r.driverAvatar,
-                    contactRole = if (r.isWomenOnly) "سائقة (رحلة نسائية)" else if (r.id.startsWith("chat_user_")) "محادثة مباشرة" else "سائق معتمد",
-                    contactRating = r.driverRating,
-                    lastMessage = lastMsgText,
-                    lastTime = lastMsgTime,
-                    unreadCount = unread
+                val displayName = when {
+                    isDirectChat && !isUserAdmin -> "إدارة وسلني (الدعم الفني) 🛡️"
+                    isDirectChat && isUserAdmin -> r.driverName
+                    currentUserId == r.driverId -> "ركاب رحلة ${r.startCity} ➔ ${r.endCity}"
+                    else -> r.driverName
+                }
+
+                val displayAvatar = when {
+                    isDirectChat && !isUserAdmin -> ""
+                    else -> r.driverAvatar
+                }
+
+                val displayRole = when {
+                    isDirectChat && !isUserAdmin -> "فريق الإشراف والدعم الفني"
+                    isDirectChat && isUserAdmin -> "مستخدم التطبيق"
+                    r.isWomenOnly -> "سائقة (رحلة نسائية)"
+                    currentUserId == r.driverId -> "أنت (السائق)"
+                    else -> "سائق معتمد"
+                }
+
+                list.add(
+                    ConversationItem(
+                        ride = r,
+                        contactName = displayName,
+                        contactAvatar = displayAvatar,
+                        contactRole = displayRole,
+                        contactRating = if (isDirectChat && !isUserAdmin) 5.0f else r.driverRating,
+                        lastMessage = lastMsg?.messageText ?: "",
+                        lastTime = lastMsgTime,
+                        unreadCount = unread
+                    )
                 )
-            }.sortedWith(
-                compareByDescending<ConversationItem> { it.unreadCount > 0 }
-                    .thenByDescending { it.unreadCount }
-            )
-        } else {
-            emptyList()
+            }
         }
+
+        // 2. Also include direct chats from allChatMessages if not already in allRides
+        val remainingChatIds = allChatMessages.map { it.rideId }.distinct().filter { it !in processedRideIds }
+        for (chatId in remainingChatIds) {
+            if (chatId.startsWith("chat_user_")) {
+                val targetUserId = chatId.removePrefix("chat_user_")
+                if (!isUserAdmin && targetUserId != currentUserId) continue
+
+                val rideMsgs = allChatMessages.filter { it.rideId == chatId }.sortedBy { it.timestamp }
+                val lastMsg = rideMsgs.lastOrNull()
+                val unread = rideMsgs.count {
+                    !it.isRead && it.senderId != currentUserId &&
+                            (it.receiverId == currentUserId || it.receiverId.isBlank() || (isUserAdmin && it.receiverId == "admin"))
+                }
+                val lastMsgTime = if (lastMsg != null) {
+                    SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(lastMsg.timestamp))
+                } else "الآن"
+
+                val syntheticRide = RideEntity(
+                    id = chatId,
+                    driverId = if (isUserAdmin) targetUserId else "admin",
+                    driverName = if (!isUserAdmin) "إدارة وسلني (الدعم الفني)" else "المستخدم ($targetUserId)",
+                    driverAvatar = "",
+                    startCity = if (!isUserAdmin) "الدعم الفني" else "محادثة مباشرة",
+                    endCity = if (!isUserAdmin) "الإدارة" else "العميل",
+                    departureDate = "فوري",
+                    departureTime = "",
+                    duration = "",
+                    pricePerSeat = 0.0,
+                    availableSeats = 1,
+                    totalSeats = 1,
+                    carModel = "دعم وإشراف",
+                    carColor = "أزرق",
+                    carPlate = "ADMIN",
+                    driverRating = 5.0f,
+                    driverTripCount = 100,
+                    driverVerified = true
+                )
+
+                list.add(
+                    ConversationItem(
+                        ride = syntheticRide,
+                        contactName = if (!isUserAdmin) "إدارة وسلني (الدعم الفني) 🛡️" else "مستخدم ($targetUserId)",
+                        contactAvatar = "",
+                        contactRole = if (!isUserAdmin) "فريق الإشراف والدعم الفني" else "مستخدم التطبيق",
+                        contactRating = 5.0f,
+                        lastMessage = lastMsg?.messageText ?: "",
+                        lastTime = lastMsgTime,
+                        unreadCount = unread
+                    )
+                )
+            }
+        }
+
+        list.sortedWith(
+            compareByDescending<ConversationItem> { it.unreadCount > 0 }
+                .thenByDescending { it.unreadCount }
+        )
     }
 
     var selectedFilterTab by remember { mutableIntStateOf(0) } // 0: All, 1: Unread, 2: Active
@@ -387,18 +460,18 @@ fun MessagesScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 90.dp)
                 ) {
                     items(filteredConversations, key = { it.ride.id }) { item ->
                         val hasUnread = item.unreadCount > 0
                         Surface(
                             onClick = { onSelectConversation(item.ride) },
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (hasUnread) PrimaryGreen.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
-                            border = if (hasUnread) BorderStroke(1.5.dp, ErrorRed.copy(alpha = 0.8f)) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                            tonalElevation = if (hasUnread) 4.dp else 2.dp,
-                            shadowElevation = if (hasUnread) 2.dp else 1.dp,
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (hasUnread) PrimaryGreen.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surface,
+                            border = if (hasUnread) BorderStroke(1.2.dp, ErrorRed.copy(alpha = 0.8f)) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                            tonalElevation = if (hasUnread) 3.dp else 1.dp,
+                            shadowElevation = if (hasUnread) 2.dp else 0.5.dp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("conversation_item_${item.ride.id}")
@@ -406,11 +479,11 @@ fun MessagesScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                // Contact Avatar with Online Indicator and Red Unread Badge Dot
+                                // Contact Avatar with Online Green Dot & Red Unread Badge Dot
                                 Box {
                                     if (item.contactAvatar.isNotBlank()) {
                                         AsyncImage(
@@ -418,13 +491,13 @@ fun MessagesScreen(
                                             contentDescription = item.contactName,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier
-                                                .size(54.dp)
+                                                .size(46.dp)
                                                 .clip(CircleShape)
                                         )
                                     } else {
                                         Box(
                                             modifier = Modifier
-                                                .size(54.dp)
+                                                .size(46.dp)
                                                 .clip(CircleShape)
                                                 .background(PrimaryGreen.copy(alpha = 0.15f)),
                                             contentAlignment = Alignment.Center
@@ -433,142 +506,81 @@ fun MessagesScreen(
                                                 Icons.Filled.Person,
                                                 contentDescription = null,
                                                 tint = PrimaryGreen,
-                                                modifier = Modifier.size(28.dp)
+                                                modifier = Modifier.size(24.dp)
                                             )
                                         }
                                     }
 
-                                    // Online green badge (Bottom End)
+                                    // Online indicator (Bottom End)
                                     Box(
                                         modifier = Modifier
-                                            .size(13.dp)
+                                            .size(11.dp)
                                             .clip(CircleShape)
                                             .background(Color(0xFF10B981))
                                             .align(Alignment.BottomEnd)
                                     )
 
-                                    // Unread Red Badge Dot (Top End)
+                                    // Unread indicator dot (Top End)
                                     if (hasUnread) {
                                         Box(
                                             modifier = Modifier
-                                                .size(16.dp)
+                                                .size(13.dp)
                                                 .clip(CircleShape)
                                                 .background(ErrorRed)
-                                                .align(Alignment.TopEnd),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(6.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.White)
-                                            )
-                                        }
+                                                .align(Alignment.TopEnd)
+                                        )
                                     }
                                 }
 
-                                // Details column (بدون عرض نص المحتوى - فقط بيانات المحادثة والرحلة)
-                                Column(modifier = Modifier.weight(1f)) {
+                                // Details column: Contact Name, Trip Route, and Role
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = item.contactName,
-                                                fontWeight = if (hasUnread) FontWeight.ExtraBold else FontWeight.Bold,
-                                                fontSize = 15.sp,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
+                                        Text(
+                                            text = item.contactName,
+                                            fontWeight = if (hasUnread) FontWeight.ExtraBold else FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+
+                                        if (item.contactRating > 0) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(
                                                     Icons.Filled.Star,
                                                     contentDescription = null,
                                                     tint = WarningAmber,
-                                                    modifier = Modifier.size(13.dp)
+                                                    modifier = Modifier.size(12.dp)
                                                 )
                                                 Text(
                                                     " ${item.contactRating}",
-                                                    fontSize = 11.5.sp,
+                                                    fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = WarningAmber
                                                 )
                                             }
                                         }
-
-                                        // Time & Unread Badge Pill
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = item.lastTime,
-                                                fontSize = 11.sp,
-                                                fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-
-                                            if (hasUnread) {
-                                                Surface(
-                                                    color = ErrorRed,
-                                                    shape = RoundedCornerShape(10.dp)
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                                    ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(6.dp)
-                                                                .clip(CircleShape)
-                                                                .background(Color.White)
-                                                        )
-                                                        Text(
-                                                            text = "${item.unreadCount} جديدة",
-                                                            color = Color.White,
-                                                            fontSize = 10.5.sp,
-                                                            fontWeight = FontWeight.ExtraBold
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
                                     }
 
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    // Route pill with Vehicle info
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Surface(
-                                            color = TrueBlue.copy(alpha = 0.1f),
-                                            shape = RoundedCornerShape(8.dp)
+                                            color = TrueBlue.copy(alpha = 0.08f),
+                                            shape = RoundedCornerShape(6.dp)
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Filled.DirectionsCar,
-                                                    contentDescription = null,
-                                                    tint = TrueBlue,
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Text(
-                                                    text = "${item.ride.startCity} ➔ ${item.ride.endCity}",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = TrueBlue
-                                                )
-                                            }
+                                            Text(
+                                                text = "${item.ride.startCity} ➔ ${item.ride.endCity}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = TrueBlue,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
                                         }
 
                                         Text(
@@ -577,42 +589,53 @@ fun MessagesScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                }
 
-                                    Spacer(modifier = Modifier.height(6.dp))
+                                // Trailing info: Timestamp, Unread Badge, and Delete action
+                                Column(
+                                    horizontalAlignment = Alignment.End,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = item.lastTime,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
 
-                                    // Direct Enter Chat CTA (بدون عرض محتوى الرسائل)
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Icon(
-                                            Icons.Filled.ChatBubbleOutline,
-                                            contentDescription = null,
-                                            tint = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Text(
-                                            text = if (hasUnread) "انقر لعرض المحادثة والرسائل الواردة" else "انقر لفتح المحادثة والمراسلة",
-                                            fontSize = 11.5.sp,
-                                            fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (hasUnread) PrimaryGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                        )
-                                    }
-                                }
+                                        if (hasUnread) {
+                                            Surface(
+                                                color = ErrorRed,
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${item.unreadCount} جديدة",
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
 
-                                // Delete Conversation Button
-                                IconButton(
-                                    onClick = { conversationToDelete = item.ride },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .testTag("delete_conv_${item.ride.id}")
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.Delete,
-                                        contentDescription = "حذف المحادثة",
-                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                        IconButton(
+                                            onClick = { conversationToDelete = item.ride },
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .testTag("delete_conv_${item.ride.id}")
+                                        ) {
+                                            Icon(
+                                                Icons.Outlined.Delete,
+                                                contentDescription = "حذف المحادثة",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -750,12 +773,25 @@ fun MessagesScreen(
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
+                            val isDirectChat = ride.id.startsWith("chat_user_")
+                            val headerTitle = when {
+                                isDirectChat && !isUserAdmin -> "إدارة وسلني (الدعم الفني) 🛡️"
+                                isDirectChat && isUserAdmin -> ride.driverName
+                                currentUserId == ride.driverId -> "ركاب الرحلة (${ride.startCity})"
+                                else -> ride.driverName
+                            }
+                            val headerSubtitle = when {
+                                isDirectChat && !isUserAdmin -> "فريق الإشراف والدعم الفني المباشر"
+                                isDirectChat && isUserAdmin -> "محادثة خاصة ومباشرة مع المستخدم"
+                                else -> "${ride.startCity} ➔ ${ride.endCity} (${ride.carModel})"
+                            }
+
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = ride.driverName,
+                                    text = headerTitle,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     maxLines = 1
@@ -769,7 +805,7 @@ fun MessagesScreen(
                             }
 
                             Text(
-                                text = "${ride.startCity} ➔ ${ride.endCity} (${ride.carModel})",
+                                text = headerSubtitle,
                                 fontSize = 11.sp,
                                 color = TrueBlue,
                                 maxLines = 1
@@ -862,7 +898,17 @@ fun MessagesScreen(
                     items(displayMessages, key = { it.id }) { msg ->
                         val isMe = msg.senderId == currentUserId ||
                                 (currentUserId.isBlank() && msg.senderId == "user_default") ||
+                                (isUserAdmin && (msg.senderId.contains("admin", ignoreCase = true) || msg.senderId == "super_admin")) ||
                                 msg.senderId == "user_me"
+
+                        val isDirectChat = ride.id.startsWith("chat_user_")
+                        val senderLabel = when {
+                            msg.senderId.contains("admin", ignoreCase = true) -> "إدارة وسلني 🛡️"
+                            isDirectChat && isUserAdmin -> ride.driverName
+                            isDirectChat && !isUserAdmin -> "إدارة وسلني 🛡️"
+                            msg.senderId == ride.driverId -> ride.driverName
+                            else -> "الطرف الآخر"
+                        }
 
                         val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
                         val timeStr = timeFormat.format(Date(msg.timestamp))
@@ -943,7 +989,7 @@ fun MessagesScreen(
                                         // Sender name if received
                                         if (!isMe) {
                                             Text(
-                                                text = ride.driverName,
+                                                text = senderLabel,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = PrimaryGreen,
@@ -1132,7 +1178,7 @@ fun MessagesScreen(
                                             // Sender label for incoming message
                                             if (!isMe) {
                                                 Text(
-                                                    text = ride.driverName,
+                                                    text = senderLabel,
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = PrimaryGreen,

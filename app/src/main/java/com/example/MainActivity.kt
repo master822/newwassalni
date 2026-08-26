@@ -336,7 +336,16 @@ class MainActivity : ComponentActivity() {
                                             onSelectConversation = { r -> viewModel.selectRide(r) },
                                             onSendMessage = { text, img, audio, audioDuration, isLoc ->
                                                 val rideId = selectedRide?.id ?: "ride_1"
-                                                val targetReceiver = if (selectedRide?.driverId == viewModel.currentUserId) "passenger_id" else (selectedRide?.driverId ?: "driver_id")
+                                                val currentUid = viewModel.activeUserId.value.ifBlank { viewModel.currentUserId }
+                                                val isDirect = rideId.startsWith("chat_user_")
+                                                val targetReceiver = if (isDirect) {
+                                                    val targetUid = rideId.removePrefix("chat_user_")
+                                                    if (currentUid == targetUid) "admin" else targetUid
+                                                } else if (selectedRide?.driverId == currentUid) {
+                                                    "passenger_id"
+                                                } else {
+                                                    selectedRide?.driverId ?: "driver_id"
+                                                }
                                                 viewModel.sendChatMessage(
                                                     rideId = rideId,
                                                     text = text,
