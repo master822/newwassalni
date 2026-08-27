@@ -43,6 +43,8 @@ import com.example.data.model.AppLanguage
 import com.example.data.model.ChatMessageEntity
 import com.example.data.model.RideEntity
 import com.example.ui.components.RatingDialog
+import com.example.ui.components.ChatImageView
+import com.example.ui.components.FullscreenPhotoViewerDialog
 import com.example.ui.theme.*
 import com.example.util.AudioPlaybackManager
 import com.example.util.AudioRecordManager
@@ -1394,8 +1396,8 @@ fun MessagesScreen(
                                                         )
                                                 ) {
                                                     Box {
-                                                        AsyncImage(
-                                                            model = msg.imageUri,
+                                                        ChatImageView(
+                                                            imageSource = msg.imageUri,
                                                             contentDescription = "صورة مرفقة - انقر لفتحها",
                                                             contentScale = ContentScale.Crop,
                                                             modifier = Modifier.fillMaxSize()
@@ -1521,8 +1523,8 @@ fun MessagesScreen(
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.size(44.dp)
                             ) {
-                                AsyncImage(
-                                    model = attachedImage,
+                                ChatImageView(
+                                    imageSource = attachedImage,
                                     contentDescription = "الصورة المحددة",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -1841,124 +1843,23 @@ fun MessagesScreen(
                 )
             }
 
-            // Full-screen interactive Photo Viewer Dialog
+            // Full-screen interactive Photo Viewer Dialog with pinch-to-zoom, pan, and smooth gestures
             if (openedPhotoUrl != null) {
-                Dialog(
-                    onDismissRequest = {
+                FullscreenPhotoViewerDialog(
+                    imageSource = openedPhotoUrl,
+                    onDismiss = {
                         openedPhotoUrl = null
                         openedPhotoMessage = null
                     },
-                    properties = DialogProperties(
-                        usePlatformDefaultWidth = false,
-                        dismissOnBackPress = true,
-                        dismissOnClickOutside = true
-                    )
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.96f))
-                    ) {
-                        // Top Header Bar
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .statusBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    openedPhotoUrl = null
-                                    openedPhotoMessage = null
-                                },
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.2f))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "إغلاق",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            Text(
-                                text = "عرض الصورة",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp
-                            )
-
-                            IconButton(
-                                onClick = {
-                                    val msg = openedPhotoMessage
-                                    openedPhotoUrl = null
-                                    openedPhotoMessage = null
-                                    messageToDelete = msg
-                                },
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.85f))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Delete,
-                                    contentDescription = "حذف الصورة",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-
-                        // Full Size Image Display
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 12.dp, vertical = 72.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AsyncImage(
-                                model = openedPhotoUrl,
-                                contentDescription = "صورة بالحجم الكامل",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-
-                        // Bottom Tip Bar
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.75f),
-                            shape = RoundedCornerShape(24.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .padding(bottom = 24.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.TouchApp,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "اضغط مطولاً على أي صورة أو رسالة لحذفها من المحادثة",
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    fontSize = 12.sp
-                                )
-                            }
+                    onDelete = {
+                        val msg = openedPhotoMessage
+                        openedPhotoUrl = null
+                        openedPhotoMessage = null
+                        if (msg != null) {
+                            messageToDelete = msg
                         }
                     }
-                }
+                )
             }
 
             // Delete Conversation confirmation

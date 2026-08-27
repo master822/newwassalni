@@ -39,6 +39,8 @@ import java.util.Date
 import java.util.Locale
 import coil.compose.AsyncImage
 import com.example.data.model.*
+import com.example.ui.components.ChatImageView
+import com.example.ui.components.FullscreenPhotoViewerDialog
 import com.example.ui.components.GlassCard
 import com.example.util.AudioPlaybackManager
 import com.example.ui.components.normalizeSyrianPhoneNumber
@@ -2024,6 +2026,7 @@ private fun AdminChatControlSubPage(
         // =========================================================================
         // READ-ONLY CHAT VIEWER (Only reading conversation content as requested)
         // =========================================================================
+        var adminOpenedPhotoUrl by remember { mutableStateOf<String?>(null) }
         val currentRoomMsgs = allChatMessages.filter { it.rideId == selectedRideChatRoom }.sortedBy { it.timestamp }
 
         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2208,12 +2211,20 @@ private fun AdminChatControlSubPage(
                                 }
 
                                 if (!msg.imageUri.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = msg.imageUri,
-                                        contentDescription = "Message Image",
-                                        modifier = Modifier.size(160.dp, 100.dp).clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier
+                                            .size(180.dp, 120.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { adminOpenedPhotoUrl = msg.imageUri }
+                                    ) {
+                                        ChatImageView(
+                                            imageSource = msg.imageUri,
+                                            contentDescription = "Message Image",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
                                 }
 
                                 if (msg.messageText.isNotBlank() && (!isAudio || msg.messageText != "تسجيل صوتي (${msg.audioDurationSeconds} ثانية)")) {
@@ -2228,6 +2239,14 @@ private fun AdminChatControlSubPage(
                         }
                     }
                 }
+            }
+
+            // Full-screen photo viewer dialog for admin
+            if (adminOpenedPhotoUrl != null) {
+                FullscreenPhotoViewerDialog(
+                    imageSource = adminOpenedPhotoUrl,
+                    onDismiss = { adminOpenedPhotoUrl = null }
+                )
             }
 
             // Informational Read-Only Footer Banner (Explicitly confirming no other actions can be done here)

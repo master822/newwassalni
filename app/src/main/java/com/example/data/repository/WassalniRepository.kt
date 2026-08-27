@@ -22,6 +22,7 @@ class WassalniRepository(
     private val api: ApiService = ApiClient.getService(context),
     private val tokenManager: TokenManager = TokenManager.getInstance(context)
 ) {
+    private val appContext: Context = context.applicationContext
 
     val tokenMgr: TokenManager get() = tokenManager
 
@@ -1043,20 +1044,16 @@ class WassalniRepository(
             }
 
             // Convert local image to Base64 payload if not already a URL
-            val remoteImageUri: String? = if (!imageUri.isNullOrBlank() && !imageUri.startsWith("http") && !imageUri.startsWith("data:")) {
-                val f = File(imageUri)
-                if (f.exists() && f.isFile && f.length() > 0) {
-                    try {
-                        val bytes = f.readBytes()
-                        "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                    } catch (_: Exception) {
-                        imageUri
-                    }
-                } else {
-                    imageUri
-                }
+            val remoteImageUri: String? = com.example.ui.components.ChatImageLoader.compressUriToBase64(appContext, imageUri)
+
+            // Ensure local entity has the permanent base64 data if available
+            val entityToPersist = if (remoteImageUri != null && remoteImageUri != localEntity.imageUri) {
+                localEntity.copy(
+                    imageUri = remoteImageUri,
+                    audioUri = remoteAudioUri ?: localEntity.audioUri
+                ).also { dao.insertChatMessage(it) }
             } else {
-                imageUri
+                localEntity
             }
 
             // Send to backend API
@@ -1065,7 +1062,7 @@ class WassalniRepository(
                 val resp = api.sendChatMessage(
                     rideId = rideId,
                     request = SendChatMessageRequest(
-                        id = localEntity.id,
+                        id = entityToPersist.id,
                         message = text,
                         imageUri = remoteImageUri,
                         audioUri = remoteAudioUri,
@@ -1087,8 +1084,8 @@ class WassalniRepository(
                             senderId = dto.senderId,
                             receiverId = dto.receiverId ?: receiverId,
                             messageText = dto.message ?: text,
-                            imageUri = if (dto.senderId == currentUid && !imageUri.isNullOrBlank()) imageUri else (dto.imageUri ?: imageUri),
-                            audioUri = if (dto.senderId == currentUid && !audioUri.isNullOrBlank()) audioUri else (dto.audioUri ?: audioUri),
+                            imageUri = dto.imageUri ?: remoteImageUri ?: imageUri,
+                            audioUri = dto.audioUri ?: remoteAudioUri ?: audioUri,
                             audioDurationSeconds = dto.audioDuration ?: audioDuration,
                             isLocation = dto.isLocation,
                             latitude = dto.latitude,
@@ -1103,7 +1100,7 @@ class WassalniRepository(
                 netErr.printStackTrace()
             }
 
-            Result.success(localEntity)
+            Result.success(entityToPersist)
         } catch (e: Exception) {
             val fallback = existingMessage ?: ChatMessageEntity(
                 id = "msg_" + java.util.UUID.randomUUID().toString().take(8),
