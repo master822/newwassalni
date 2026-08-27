@@ -1025,12 +1025,13 @@ class WassalniRepository(
             dao.insertChatMessage(localEntity)
 
             // Convert local audio file to Base64 payload so remote recipients get the real audio content
-            val remoteAudioUri: String? = if (!audioUri.isNullOrBlank()) {
+            val remoteAudioUri: String? = if (!audioUri.isNullOrBlank() && !audioUri.startsWith("http") && !audioUri.startsWith("data:")) {
                 val f = File(audioUri)
                 if (f.exists() && f.isFile && f.length() > 0) {
                     try {
                         val bytes = f.readBytes()
-                        "data:audio/mp4;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                        val mime = if (audioUri.endsWith(".wav", ignoreCase = true)) "audio/wav" else "audio/mp4"
+                        "data:$mime;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                     } catch (_: Exception) {
                         audioUri
                     }
@@ -1038,7 +1039,7 @@ class WassalniRepository(
                     audioUri
                 }
             } else {
-                null
+                audioUri
             }
 
             // Convert local image to Base64 payload if not already a URL
@@ -1064,6 +1065,7 @@ class WassalniRepository(
                 val resp = api.sendChatMessage(
                     rideId = rideId,
                     request = SendChatMessageRequest(
+                        id = localEntity.id,
                         message = text,
                         imageUri = remoteImageUri,
                         audioUri = remoteAudioUri,
@@ -1085,8 +1087,8 @@ class WassalniRepository(
                             senderId = dto.senderId,
                             receiverId = dto.receiverId ?: receiverId,
                             messageText = dto.message ?: text,
-                            imageUri = dto.imageUri ?: imageUri,
-                            audioUri = dto.audioUri ?: audioUri,
+                            imageUri = if (dto.senderId == currentUid && !imageUri.isNullOrBlank()) imageUri else (dto.imageUri ?: imageUri),
+                            audioUri = if (dto.senderId == currentUid && !audioUri.isNullOrBlank()) audioUri else (dto.audioUri ?: audioUri),
                             audioDurationSeconds = dto.audioDuration ?: audioDuration,
                             isLocation = dto.isLocation,
                             latitude = dto.latitude,

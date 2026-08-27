@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
             val appDownloadUrl by viewModel.appDownloadUrl.collectAsStateWithLifecycle()
             val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
             var showAuthDialog by remember { mutableStateOf(false) }
+            var showSplashScreen by remember { mutableStateOf(true) }
 
             val searchFrom by viewModel.searchFromCity.collectAsStateWithLifecycle()
             val searchTo by viewModel.searchToCity.collectAsStateWithLifecycle()
@@ -127,7 +128,13 @@ class MainActivity : ComponentActivity() {
 
             CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
                 WassalniTheme(darkTheme = isDarkMode) {
-                    if (!isLoggedIn) {
+                    if (showSplashScreen) {
+                        SplashScreen(
+                            appName = "وصلني",
+                            appTagline = "نسافر معاً، نوصل بأمان 🚗💨",
+                            onSplashFinished = { showSplashScreen = false }
+                        )
+                    } else if (!isLoggedIn) {
                         AuthScreen(
                             language = language,
                             isDarkMode = isDarkMode,
@@ -366,7 +373,9 @@ class MainActivity : ComponentActivity() {
                                                 val rideId = selectedRide?.id ?: "ride_1"
                                                 viewModel.sendPaymentReminder(rideId)
                                             },
-                                            onBackToList = { viewModel.selectRide(null) }
+                                            onBackToList = { viewModel.selectRide(null) },
+                                            onMarkAllAsRead = { viewModel.markAllMessagesAsRead() },
+                                            onMarkMessagesAsRead = { rideId -> viewModel.markRideMessagesAsRead(rideId) }
                                         )
 
                                         "requested_trips" -> RequestedTripsScreen(

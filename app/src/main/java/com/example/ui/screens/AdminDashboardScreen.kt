@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -1095,107 +1096,363 @@ private fun AdminMainHub(
             .fillMaxSize()
             .padding(horizontal = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp)
+        contentPadding = PaddingValues(top = 10.dp, bottom = 95.dp)
     ) {
-        // Header
+        // 1. Executive Top Header Card
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(8.dp, RoundedCornerShape(22.dp), spotColor = PrimaryGreen.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(22.dp),
+                color = Color.Transparent
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "عودة")
-                    }
-                    Column {
-                        Text("مركز تحكم المشغل الرئيسي", fontSize = 17.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Super Admin Dashboard", fontSize = 11.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Surface(
-                        color = GoldAccent.copy(alpha = 0.2f),
-                        shape = CircleShape
-                    ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF0F2B1D),
+                                    Color(0xFF16442F),
+                                    Color(0xFF081C13)
+                                )
+                            )
+                        )
+                        .padding(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(Icons.Filled.Shield, contentDescription = null, tint = DarkGreen, modifier = Modifier.size(13.dp))
-                            Text("أعلى صلاحية", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = DarkGreen)
-                        }
-                    }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilledTonalIconButton(
+                                    onClick = onBack,
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                        containerColor = Color.White.copy(alpha = 0.15f),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", modifier = Modifier.size(20.dp))
+                                }
 
-                    IconButton(
-                        onClick = onLogoutAdmin,
-                        modifier = Modifier.testTag("admin_logout_btn")
-                    ) {
-                        Icon(Icons.Filled.Logout, contentDescription = "خروج المشرف", tint = MaterialTheme.colorScheme.error)
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            "مركز تحكم المشغل الأعلى",
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                    }
+                                    Text(
+                                        "Super Executive Control Center",
+                                        fontSize = 11.sp,
+                                        color = GoldAccent,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Surface(
+                                    color = GoldAccent.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, GoldAccent.copy(alpha = 0.4f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Shield, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(13.dp))
+                                        Text("أدمن رئيسي", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = GoldAccent)
+                                    }
+                                }
+
+                                FilledTonalIconButton(
+                                    onClick = onLogoutAdmin,
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    ),
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(38.dp).testTag("admin_logout_btn")
+                                ) {
+                                    Icon(Icons.Filled.Logout, contentDescription = "خروج المشرف", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+
+                        // Live System Pulse Bar
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(PrimaryGreen)
+                                    )
+                                    Text("خادم العمليات والرسائل متصل ومحدث ⚡", fontSize = 11.sp, color = Color.White.copy(alpha = 0.9f))
+                                }
+
+                                Text(
+                                    text = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date()),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GoldAccent
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Key Metrics Summary Cards
+        // 2. Executive KPI Cards Grid (4 Rich Cards)
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                GlassCard(
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 14.dp
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Filled.AttachMoney, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(14.dp))
-                            Text("الإيرادات المعتمدة", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Card 1: Revenue
+                    GlassCard(
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 16.dp
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(PrimaryGreen.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Filled.AttachMoney, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(18.dp))
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = PrimaryGreen.copy(alpha = 0.1f)
+                                ) {
+                                    Text("معتمد 100%", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                }
+                            }
+                            Text("الإيرادات المعتمدة", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "$${String.format(Locale.US, "%.2f", totalRevenue)}",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Black,
+                                color = PrimaryGreen
+                            )
                         }
-                        Text("$${String.format(java.util.Locale.US, "%.2f", totalRevenue)}", fontSize = 15.sp, fontWeight = FontWeight.Black, color = PrimaryGreen)
+                    }
+
+                    // Card 2: Sham Cash Topups
+                    GlassCard(
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 16.dp
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (pendingTopupsCount > 0) Color(0xFFD97706).copy(alpha = 0.15f) else Color(0xFF059669).copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Filled.Payments, contentDescription = null, tint = if (pendingTopupsCount > 0) Color(0xFFD97706) else Color(0xFF059669), modifier = Modifier.size(18.dp))
+                                }
+                                if (pendingTopupsCount > 0) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                                    ) {
+                                        Text("$pendingTopupsCount معلق!", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                    }
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = PrimaryGreen.copy(alpha = 0.1f)
+                                    ) {
+                                        Text("جاهز", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = PrimaryGreen, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                    }
+                                }
+                            }
+                            Text("شحن شام كاش", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "$topUpRequestsCount طلب",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (pendingTopupsCount > 0) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
 
-                GlassCard(
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 14.dp
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Filled.Stars, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(14.dp))
-                            Text("النقاط المباعة", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Card 3: Points Sold
+                    GlassCard(
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 16.dp
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(GoldAccent.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Filled.Stars, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(18.dp))
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = GoldAccent.copy(alpha = 0.12f)
+                                ) {
+                                    Text("نقاط", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = GoldAccent, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                }
+                            }
+                            Text("النقاط المصدرة", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "$totalPointsSold pts",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = GoldAccent
+                            )
                         }
-                        Text("$totalPointsSold pts", fontSize = 15.sp, fontWeight = FontWeight.Black, color = GoldAccent)
                     }
-                }
 
-                GlassCard(
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 14.dp
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.Filled.PendingActions, contentDescription = null, tint = if (pendingTopupsCount > 0) Color(0xFFD97706) else PrimaryGreen, modifier = Modifier.size(14.dp))
-                            Text("شحن معلق", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Card 4: Rides Fleet
+                    GlassCard(
+                        modifier = Modifier.weight(1f),
+                        cornerRadius = 16.dp
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(TrueBlue.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Filled.DirectionsCar, contentDescription = null, tint = TrueBlue, modifier = Modifier.size(18.dp))
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = TrueBlue.copy(alpha = 0.1f)
+                                ) {
+                                    Text("$allUsersCount مستخدم", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = TrueBlue, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+                                }
+                            }
+                            Text("رحلات الأسطول", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "$allRidesCount رحلة",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = TrueBlue
+                            )
                         }
-                        Text("$pendingTopupsCount طلب", fontSize = 15.sp, fontWeight = FontWeight.Black, color = if (pendingTopupsCount > 0) Color(0xFFD97706) else PrimaryGreen)
                     }
                 }
             }
         }
 
+        // 3. Quick Action Shortcut Pills Bar
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "إجراءات سريعة ومباشرة:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AssistChip(
+                        onClick = { onSelectSection(AdminSection.BROADCAST) },
+                        label = { Text("بث إشعار 📢", fontSize = 11.sp) },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    AssistChip(
+                        onClick = { onSelectSection(AdminSection.TOPUP_REQUESTS) },
+                        label = { Text("شام كاش 💳", fontSize = 11.sp) },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    AssistChip(
+                        onClick = { onSelectSection(AdminSection.CHAT_CONTROL) },
+                        label = { Text("الرقابة 💬", fontSize = 11.sp) },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    AssistChip(
+                        onClick = { onSelectSection(AdminSection.BRANDING_SETTINGS) },
+                        label = { Text("الإعدادات ⚙️", fontSize = 11.sp) },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        // 4. Section Group Title
         item {
             Text(
-                text = "أقسام التحكم الشامل (اختر قسماً لفتحه في صفحة مستقلة):",
-                fontSize = 12.sp,
+                text = "أقسام الإدارة والتحكم الشامل:",
+                fontSize = 12.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
 
-        // Functional Section Tiles (Clean, regular structured cards)
+        // 5. Functional Section Tiles with Modern Glassmorphism & Accent Badges
         items(AdminSection.values()) { section ->
             val countBadge = when (section) {
                 AdminSection.USERS -> "$allUsersCount مستخدم"
@@ -1211,15 +1468,16 @@ private fun AdminMainHub(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSelectSection(section) }
-                    .shadow(4.dp, RoundedCornerShape(16.dp), spotColor = section.accentColor.copy(alpha = 0.2f)),
-                shape = RoundedCornerShape(16.dp),
+                    .shadow(4.dp, RoundedCornerShape(18.dp), spotColor = section.accentColor.copy(alpha = 0.25f)),
+                shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, section.accentColor.copy(alpha = 0.2f)),
                 tonalElevation = 2.dp
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -1230,9 +1488,9 @@ private fun AdminMainHub(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(section.accentColor.copy(alpha = 0.14f)),
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(section.accentColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(section.icon, contentDescription = null, tint = section.accentColor, modifier = Modifier.size(24.dp))
@@ -1256,15 +1514,15 @@ private fun AdminMainHub(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (countBadge != null) {
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = section.accentColor.copy(alpha = 0.12f)
+                                shape = RoundedCornerShape(8.dp),
+                                color = section.accentColor.copy(alpha = 0.14f)
                             ) {
                                 Text(
                                     text = countBadge,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = section.accentColor,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
                         }
@@ -1297,13 +1555,24 @@ private fun AdminUsersSubPage(
     onDeleteUser: (UserEntity) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    val filteredUsers = allUsers.filter {
-        it.name.contains(searchQuery, ignoreCase = true) ||
-        it.email.contains(searchQuery, ignoreCase = true) ||
-        it.phone.contains(searchQuery, ignoreCase = true)
+    var selectedUserFilter by remember { mutableStateOf("ALL") } // "ALL", "ACTIVE", "SUSPENDED", "DRIVER", "PASSENGER"
+
+    val filteredUsers = allUsers.filter { u ->
+        val matchesSearch = u.name.contains(searchQuery, ignoreCase = true) ||
+                u.email.contains(searchQuery, ignoreCase = true) ||
+                u.phone.contains(searchQuery, ignoreCase = true)
+        val matchesFilter = when (selectedUserFilter) {
+            "ACTIVE" -> !u.isSuspended
+            "SUSPENDED" -> u.isSuspended
+            "DRIVER" -> u.userRole.contains("DRIVER", ignoreCase = true) || u.userRole.contains("سائق", ignoreCase = true)
+            "PASSENGER" -> !u.userRole.contains("DRIVER", ignoreCase = true) && !u.userRole.contains("سائق", ignoreCase = true)
+            else -> true
+        }
+        matchesSearch && matchesFilter
     }
 
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Search & Add Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1312,142 +1581,197 @@ private fun AdminUsersSubPage(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("بحث عن مستخدم...") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                placeholder = { Text("بحث بالاسم، الهاتف أو البريد...", fontSize = 12.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = PrimaryGreen) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "مسح", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                },
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.weight(1f).testTag("admin_user_search")
             )
 
             Button(
                 onClick = onCreateUser,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                 modifier = Modifier.testTag("admin_add_user_btn")
             ) {
                 Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("مستخدم جديد", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                Text("إضافة مستخدم", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 90.dp)
+        // Filter chips row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            items(filteredUsers) { u ->
-                GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                if (!u.avatarUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = u.avatarUrl,
-                                        contentDescription = u.name,
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(CircleShape),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier.size(44.dp).clip(CircleShape).background(PrimaryGreen.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Filled.Person, contentDescription = null, tint = PrimaryGreen)
-                                    }
-                                }
-                                Column {
-                                    Text(u.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("${u.phone} • ${u.email}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Surface(color = GoldAccent.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
-                                            Text("محفظة: ${u.walletPoints} نقطة", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = DarkGreen, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+            val filters = listOf(
+                Pair("ALL", "الكل (${allUsers.size})"),
+                Pair("ACTIVE", "النشطين (${allUsers.count { !it.isSuspended }})"),
+                Pair("SUSPENDED", "المعلقين (${allUsers.count { it.isSuspended }})"),
+                Pair("DRIVER", "السائقين")
+            )
+
+            filters.forEach { (key, label) ->
+                val isSelected = selectedUserFilter == key
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) PrimaryGreen else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, if (isSelected) PrimaryGreen else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                    modifier = Modifier.clickable { selectedUserFilter = key }
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+
+        if (filteredUsers.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("لا يوجد مستخدمين مطابقين لمعايير البحث", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 90.dp)
+            ) {
+                items(filteredUsers, key = { it.id }) { u ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, if (u.isSuspended) Color(0xFFEF4444).copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        shadowElevation = 1.dp
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    if (!u.avatarUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = u.avatarUrl,
+                                            contentDescription = u.name,
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.size(46.dp).clip(CircleShape).background(PrimaryGreen.copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Filled.Person, contentDescription = null, tint = PrimaryGreen, modifier = Modifier.size(24.dp))
                                         }
-                                        Text("${u.userRole} • ${u.rating}⭐", fontSize = 10.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold)
+                                    }
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(u.name, fontWeight = FontWeight.Black, fontSize = 14.5.sp)
+                                            if (u.isVerified) {
+                                                Icon(Icons.Filled.CheckCircle, contentDescription = "موثق", tint = Color(0xFF0284C7), modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                        Text("${u.phone} • ${u.email}", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(color = GoldAccent.copy(alpha = 0.18f), shape = RoundedCornerShape(4.dp)) {
+                                                Text("محفظة: ${u.walletPoints} نقطة", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309), modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
+                                            }
+                                            Text("${u.userRole} • ${u.rating}⭐", fontSize = 10.5.sp, color = PrimaryGreen, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
-                            }
 
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (u.isSuspended) Color(0xFFFEE2E2) else Color(0xFFD1FAE5)
-                            ) {
-                                Text(
-                                    text = if (u.isSuspended) "معلق" else "نشط",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    color = if (u.isSuspended) Color(0xFF991B1B) else Color(0xFF065F46),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
-
-                        // Action Buttons Row (Clear & spacious)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Button(
-                                onClick = { onChatWithUser(u) },
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1.2f).testTag("chat_user_btn_${u.id}")
-                            ) {
-                                Icon(Icons.Filled.ChatBubble, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("محادثة", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            OutlinedButton(
-                                onClick = { onAdjustWallet(u) },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("الرصيد", fontSize = 11.sp)
-                            }
-
-                            OutlinedButton(
-                                onClick = { onEditUser(u) },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("تعديل", fontSize = 11.sp)
-                            }
-
-                            IconButton(onClick = { onViewDetails(u) }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Filled.Info, contentDescription = "Details", tint = PrimaryGreen, modifier = Modifier.size(18.dp))
-                            }
-
-                            if (u.isSuspended) {
-                                IconButton(onClick = { onReactivate(u) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Filled.CheckCircle, contentDescription = "Activate", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
-                                }
-                            } else {
-                                IconButton(onClick = { onSuspend(u) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Filled.Block, contentDescription = "Suspend", tint = Color(0xFFD97706), modifier = Modifier.size(18.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (u.isSuspended) Color(0xFFFEE2E2) else Color(0xFFD1FAE5)
+                                ) {
+                                    Text(
+                                        text = if (u.isSuspended) "معلق 🚫" else "نشط ✓",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = if (u.isSuspended) Color(0xFF991B1B) else Color(0xFF065F46),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
                                 }
                             }
 
-                            IconButton(
-                                onClick = { onDeleteUser(u) },
-                                modifier = Modifier.size(32.dp).testTag("delete_user_btn_${u.id}")
+                            // Action Buttons Row (Clear & spacious)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Outlined.Delete, contentDescription = "حذف المستخدم", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                Button(
+                                    onClick = { onChatWithUser(u) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.weight(1.2f).height(36.dp).testTag("chat_user_btn_${u.id}")
+                                ) {
+                                    Icon(Icons.Filled.ChatBubble, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("محادثة", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { onAdjustWallet(u) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier.weight(1f).height(36.dp)
+                                ) {
+                                    Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("الرصيد", fontSize = 11.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { onEditUser(u) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier.weight(1f).height(36.dp)
+                                ) {
+                                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("تعديل", fontSize = 11.sp)
+                                }
+
+                                IconButton(onClick = { onViewDetails(u) }, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.Filled.Info, contentDescription = "Details", tint = PrimaryGreen, modifier = Modifier.size(18.dp))
+                                }
+
+                                if (u.isSuspended) {
+                                    IconButton(onClick = { onReactivate(u) }, modifier = Modifier.size(34.dp)) {
+                                        Icon(Icons.Filled.CheckCircle, contentDescription = "Activate", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                                    }
+                                } else {
+                                    IconButton(onClick = { onSuspend(u) }, modifier = Modifier.size(34.dp)) {
+                                        Icon(Icons.Filled.Block, contentDescription = "Suspend", tint = Color(0xFFD97706), modifier = Modifier.size(18.dp))
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { onDeleteUser(u) },
+                                    modifier = Modifier.size(34.dp).testTag("delete_user_btn_${u.id}")
+                                ) {
+                                    Icon(Icons.Outlined.Delete, contentDescription = "حذف المستخدم", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
@@ -1457,7 +1781,7 @@ private fun AdminUsersSubPage(
     }
 }
 
-// 2. Chat Control & Monitoring Sub-Page (Read-Only monitoring as requested)
+// 2. Chat Control & Monitoring Sub-Page (Read-Only monitoring with modern styling)
 @Composable
 private fun AdminChatControlSubPage(
     allRides: List<RideEntity>,
@@ -1468,6 +1792,7 @@ private fun AdminChatControlSubPage(
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("ALL") } // "ALL", "ACTIVE", "VOICE", "ADMIN"
     var roomToDelete by remember { mutableStateOf<RideEntity?>(null) }
     var playingAudioId by remember { mutableStateOf<String?>(null) }
 

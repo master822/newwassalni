@@ -144,20 +144,23 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 10. Chat Messages Table
+-- 10. Chat Messages Table (Flexible for ride chats, direct chats, and admin support)
 CREATE TABLE IF NOT EXISTS chat_messages (
     id VARCHAR(64) PRIMARY KEY,
-    ride_id VARCHAR(64) NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
-    sender_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ride_id VARCHAR(64) NOT NULL,
+    sender_id VARCHAR(64) NOT NULL,
     sender_name VARCHAR(120) NOT NULL,
     sender_avatar TEXT DEFAULT '',
     message TEXT NOT NULL,
     timestamp VARCHAR(32) NOT NULL,
     is_driver BOOLEAN DEFAULT FALSE,
     image_uri TEXT DEFAULT NULL,
+    audio_uri TEXT DEFAULT NULL,
+    audio_duration INT DEFAULT 0,
     is_location BOOLEAN DEFAULT FALSE,
     latitude NUMERIC(10, 6) DEFAULT NULL,
     longitude NUMERIC(10, 6) DEFAULT NULL,
+    receiver_id VARCHAR(64) DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

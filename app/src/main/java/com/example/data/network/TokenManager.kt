@@ -51,29 +51,31 @@ class TokenManager(context: Context) {
 
     fun getRefreshToken(): String? = prefs.getString(KEY_REFRESH_TOKEN, null)
 
-    fun getUserId(): String = prefs.getString(KEY_USER_ID, "user_default") ?: "user_default"
+    fun getUserId(): String = prefs.getString(KEY_USER_ID, "") ?: ""
 
-    fun getUserName(): String = prefs.getString(KEY_USER_NAME, "أحمد المحمد") ?: "أحمد المحمد"
+    fun getUserName(): String = prefs.getString(KEY_USER_NAME, "") ?: ""
 
-    fun getUserEmail(): String = prefs.getString(KEY_USER_EMAIL, "ahmed@wasalni.app") ?: "ahmed@wasalni.app"
+    fun getUserEmail(): String = prefs.getString(KEY_USER_EMAIL, "") ?: ""
 
-    fun getUserPhone(): String = prefs.getString(KEY_USER_PHONE, "+963 988 123 456") ?: "+963 988 123 456"
+    fun getUserPhone(): String = prefs.getString(KEY_USER_PHONE, "") ?: ""
 
     fun getUserRole(): String = prefs.getString(KEY_USER_ROLE, "USER") ?: "USER"
 
     fun isAdmin(): Boolean {
+        if (!isLoggedIn()) return false
         val role = getUserRole()
         return (role == "ADMIN" || role == "SUPER_ADMIN") && !isImpersonating()
     }
 
     fun isSuperAdmin(): Boolean {
+        if (!isLoggedIn()) return false
         val role = getUserRole()
         return role == "SUPER_ADMIN" && !isImpersonating()
     }
 
     fun isImpersonating(): Boolean = prefs.getBoolean(KEY_IS_IMPERSONATING, false)
 
-    fun isLoggedIn(): Boolean = getAccessToken() != null
+    fun isLoggedIn(): Boolean = !getAccessToken().isNullOrBlank()
 
     fun clear() {
         prefs.edit().clear().apply()

@@ -119,6 +119,9 @@ interface AppDao {
     @Query("UPDATE chat_messages SET isRead = 1 WHERE rideId = :rideId")
     suspend fun markAllRideChatMessagesAsRead(rideId: String)
 
+    @Query("UPDATE chat_messages SET isRead = 1")
+    suspend fun markAllChatMessagesAsRead()
+
     @Query("UPDATE chat_messages SET messageText = :newText WHERE id = :messageId")
     suspend fun updateChatMessageText(messageId: String, newText: String)
 

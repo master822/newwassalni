@@ -270,6 +270,7 @@ data class ChatMessageDto(
 
 @JsonClass(generateAdapter = true)
 data class SendChatMessageRequest(
+    @Json(name = "id") val id: String? = null,
     @Json(name = "message") val message: String,
     @Json(name = "imageUri") val imageUri: String? = null,
     @Json(name = "audioUri") val audioUri: String? = null,

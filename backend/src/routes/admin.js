@@ -785,11 +785,28 @@ router.delete('/requested-trips/:id', async (req, res) => {
 router.get('/chats', async (req, res) => {
   try {
     const result = await db.query(`
-      SELECT r.id as ride_id, r.driver_name, r.start_city, r.end_city, r.departure_date,
-             COUNT(m.id) as message_count, MAX(m.created_at) as last_message_at
-      FROM rides r
-      LEFT JOIN chat_messages m ON r.id = m.ride_id
-      GROUP BY r.id, r.driver_name, r.start_city, r.end_city, r.departure_date
+      WITH all_chat_rooms AS (
+        SELECT r.id as ride_id, r.driver_name, r.start_city, r.end_city, r.departure_date,
+               COUNT(m.id) as message_count, MAX(m.created_at) as last_message_at
+        FROM rides r
+        LEFT JOIN chat_messages m ON r.id = m.ride_id
+        GROUP BY r.id, r.driver_name, r.start_city, r.end_city, r.departure_date
+        
+        UNION ALL
+        
+        SELECT m.ride_id, 
+               COALESCE(u.name, 'مستخدم مباشر') as driver_name, 
+               'محادثة مباشرة' as start_city, 
+               'الدعم الفني' as end_city, 
+               'فوري' as departure_date,
+               COUNT(m.id) as message_count, 
+               MAX(m.created_at) as last_message_at
+        FROM chat_messages m
+        LEFT JOIN users u ON u.id = REPLACE(m.ride_id, 'chat_user_', '')
+        WHERE m.ride_id LIKE 'chat_user_%' AND m.ride_id NOT IN (SELECT id FROM rides)
+        GROUP BY m.ride_id, u.name
+      )
+      SELECT * FROM all_chat_rooms
       ORDER BY last_message_at DESC NULLS LAST
     `);
     res.json({ success: true, data: result.rows });
@@ -803,7 +820,25 @@ router.get('/chats/:rideId', async (req, res) => {
   try {
     const { rideId } = req.params;
     const result = await db.query('SELECT * FROM chat_messages WHERE ride_id = $1 ORDER BY created_at ASC', [rideId]);
-    res.json({ success: true, data: result.rows });
+    const formatted = result.rows.map(row => ({
+      id: String(row.id || ''),
+      ride_id: String(row.ride_id || ''),
+      sender_id: String(row.sender_id || ''),
+      sender_name: row.sender_name || 'مستخدم',
+      sender_avatar: row.sender_avatar || '',
+      message: row.message || '',
+      timestamp: row.timestamp || '',
+      is_driver: Boolean(row.is_driver),
+      image_uri: row.image_uri || null,
+      audio_uri: row.audio_uri || null,
+      audio_duration: row.audio_duration ? parseInt(row.audio_duration, 10) : 0,
+      is_location: Boolean(row.is_location),
+      latitude: row.latitude ? parseFloat(row.latitude) : null,
+      longitude: row.longitude ? parseFloat(row.longitude) : null,
+      receiver_id: row.receiver_id || '',
+      created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString()
+    }));
+    res.json({ success: true, data: formatted });
   } catch (err) {
     console.error('Error fetching room messages:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch messages' });

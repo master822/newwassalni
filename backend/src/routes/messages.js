@@ -2,20 +2,33 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { v4: uuidv4 } = require('uuid');
-const { authenticateOptionalToken } = require('../middleware/auth');
+const { authenticateOptionalToken, authenticateToken } = require('../middleware/auth');
 
 // Automatically ensure schema flexibility for chat_messages (supporting direct chats, admin chats, rides)
 (async () => {
   try {
-    // Drop rigid foreign keys if present so direct chats (chat_user_...) and admin messages work seamlessly
+    // Drop all foreign key constraints on chat_messages so direct chats (chat_user_...) and unlisted user IDs work seamlessly
     await db.query(`
       DO $$
+      DECLARE
+        r RECORD;
       BEGIN
-        ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS chat_messages_ride_id_fkey;
-        ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS chat_messages_sender_id_fkey;
+        FOR r IN (
+          SELECT constraint_name 
+          FROM information_schema.table_constraints 
+          WHERE table_name = 'chat_messages' AND constraint_type = 'FOREIGN KEY'
+        ) LOOP
+          EXECUTE 'ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+        END LOOP;
+
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS receiver_id VARCHAR(64) DEFAULT '';
+        ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS image_uri TEXT DEFAULT NULL;
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS audio_uri TEXT DEFAULT NULL;
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS audio_duration INT DEFAULT 0;
+        ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_location BOOLEAN DEFAULT FALSE;
+        ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION DEFAULT NULL;
+        ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION DEFAULT NULL;
+        ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_driver BOOLEAN DEFAULT FALSE;
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       EXCEPTION
         WHEN OTHERS THEN NULL;
@@ -26,6 +39,28 @@ const { authenticateOptionalToken } = require('../middleware/auth');
   }
 })();
 
+function formatChatMessageRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id || ''),
+    ride_id: String(row.ride_id || ''),
+    sender_id: String(row.sender_id || ''),
+    sender_name: row.sender_name || 'مستخدم',
+    sender_avatar: row.sender_avatar || '',
+    message: row.message || '',
+    timestamp: row.timestamp || '',
+    is_driver: Boolean(row.is_driver),
+    image_uri: row.image_uri || null,
+    audio_uri: row.audio_uri || null,
+    audio_duration: row.audio_duration !== null && row.audio_duration !== undefined ? parseInt(row.audio_duration, 10) || 0 : 0,
+    is_location: Boolean(row.is_location),
+    latitude: row.latitude !== null && row.latitude !== undefined && !isNaN(parseFloat(row.latitude)) ? parseFloat(row.latitude) : null,
+    longitude: row.longitude !== null && row.longitude !== undefined && !isNaN(parseFloat(row.longitude)) ? parseFloat(row.longitude) : null,
+    receiver_id: row.receiver_id || '',
+    created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+  };
+}
+
 /**
  * 1. Get all recent messages across conversations (for multi-user synchronization)
  */
@@ -34,7 +69,8 @@ router.get('/sync/all', authenticateOptionalToken, async (req, res) => {
     const result = await db.query(
       'SELECT * FROM chat_messages ORDER BY created_at ASC LIMIT 1000'
     );
-    res.json({ success: true, data: result.rows });
+    const formatted = result.rows.map(formatChatMessageRow);
+    res.json({ success: true, data: formatted });
   } catch (err) {
     console.error('Error syncing all chat messages:', err);
     res.status(500).json({ success: false, error: 'Database query failed' });
@@ -52,7 +88,8 @@ router.get('/:rideId', authenticateOptionalToken, async (req, res) => {
       'SELECT * FROM chat_messages WHERE ride_id = $1 ORDER BY created_at ASC',
       [rideId]
     );
-    res.json({ success: true, data: result.rows });
+    const formatted = result.rows.map(formatChatMessageRow);
+    res.json({ success: true, data: formatted });
   } catch (err) {
     console.error('Error fetching chat messages:', err);
     res.status(500).json({ success: false, error: 'Database query failed' });
@@ -66,7 +103,8 @@ router.post('/:rideId', authenticateOptionalToken, async (req, res) => {
   try {
     const { rideId } = req.params;
     const {
-      message,
+      id: bodyId = null,
+      message = '',
       imageUri = null,
       audioUri = null,
       audioDuration = 0,
@@ -93,7 +131,7 @@ router.post('/:rideId', authenticateOptionalToken, async (req, res) => {
         senderName = bodySenderName || userRes.rows[0].name || senderName;
         senderAvatar = bodySenderAvatar || userRes.rows[0].avatar_url || senderAvatar;
       } else if (req.user?.role === 'ADMIN' || req.user?.role === 'SUPER_ADMIN' || senderId.includes('admin')) {
-        senderName = bodySenderName || 'إدارة وسلني 🛡️';
+        senderName = bodySenderName || 'إدارة التطبيق 🛡️';
       }
     } catch (_) {}
 
@@ -104,12 +142,18 @@ router.post('/:rideId', authenticateOptionalToken, async (req, res) => {
       isDriver = rideRes.rows.length > 0 && rideRes.rows[0].driver_id === senderId;
     } catch (_) {}
 
-    const id = `msg_${uuidv4().substring(0, 8)}`;
+    const id = bodyId || `msg_${uuidv4().substring(0, 8)}`;
     const timestamp = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 
     const query = `
       INSERT INTO chat_messages (id, ride_id, sender_id, sender_name, sender_avatar, message, timestamp, is_driver, image_uri, audio_uri, audio_duration, is_location, latitude, longitude, receiver_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      ON CONFLICT (id) DO UPDATE SET
+        message = EXCLUDED.message,
+        image_uri = COALESCE(EXCLUDED.image_uri, chat_messages.image_uri),
+        audio_uri = COALESCE(EXCLUDED.audio_uri, chat_messages.audio_uri),
+        audio_duration = EXCLUDED.audio_duration,
+        timestamp = EXCLUDED.timestamp
       RETURNING *
     `;
     const result = await db.query(query, [
@@ -147,7 +191,7 @@ router.post('/:rideId', authenticateOptionalToken, async (req, res) => {
       }
     }
 
-    res.status(201).json({ success: true, data: result.rows[0] });
+    res.status(201).json({ success: true, data: formatChatMessageRow(result.rows[0]) });
   } catch (err) {
     console.error('Error sending message:', err);
     res.status(500).json({ success: false, error: 'Failed to send message: ' + err.message });

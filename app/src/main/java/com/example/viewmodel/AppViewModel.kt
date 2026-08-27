@@ -218,9 +218,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     if (repository.tokenMgr.isLoggedIn()) {
                         repository.fetchNotifications()
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    // Gracefully log without terminating loop
+                    android.util.Log.w("WassalniChat", "Chat sync loop: ${e.message}")
                 }
-                delay(2500)
+                delay(1500)
             }
         }
     }
@@ -945,7 +947,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (targetReceiver.isNotBlank() && targetReceiver != currentUid && targetReceiver != "all") {
                 val senderUser = dao.getUser(currentUid)
                 val senderName = if (isAdminLoggedIn.value || currentUid.contains("admin", ignoreCase = true)) {
-                    "إدارة وسلني"
+                    "إدارة التطبيق 🛡️"
                 } else {
                     senderUser?.name ?: "مستخدم"
                 }
@@ -963,7 +965,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             // Sync with backend without duplicate insertion
-            repository.sendChatMessage(
+            val sendResult = repository.sendChatMessage(
                 rideId = rideId,
                 text = formattedText,
                 imageUri = imageUri,
@@ -973,6 +975,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 receiverId = targetReceiver,
                 existingMessage = localMsg
             )
+            // Immediately sync to refresh conversations and messages
+            repository.syncChatMessages(rideId)
+            repository.syncAllChatMessages()
+        }
+    }
+
+    fun markRideMessagesAsRead(rideId: String) {
+        viewModelScope.launch {
+            val currentUid = currentUserId
+            dao.markAllRideChatMessagesAsRead(rideId)
+            if (currentUid.isNotBlank()) {
+                dao.markChatMessagesAsRead(rideId, currentUid)
+            }
+        }
+    }
+
+    fun markAllMessagesAsRead() {
+        viewModelScope.launch {
+            dao.markAllChatMessagesAsRead()
         }
     }
 
