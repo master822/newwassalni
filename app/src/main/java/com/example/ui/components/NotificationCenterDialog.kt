@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -42,7 +43,8 @@ fun NotificationCenterDialog(
     language: AppLanguage,
     onDismiss: () -> Unit,
     onDeleteNotification: (String) -> Unit,
-    onDeleteAllNotifications: () -> Unit
+    onDeleteAllNotifications: () -> Unit,
+    onTestNotification: (() -> Unit)? = null
 ) {
     var selectedNotificationForDetail by remember { mutableStateOf<NotificationEntity?>(null) }
 
@@ -103,36 +105,88 @@ fun NotificationCenterDialog(
             }
         },
         text = {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 440.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (notifications.isEmpty()) {
-                    Column(
+                // External Notification Banner with instant test capability
+                if (onTestNotification != null) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = PrimaryGreen.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, PrimaryGreen.copy(alpha = 0.25f)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 36.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .clickable { onTestNotification() }
                     ) {
-                        Icon(
-                            Icons.Filled.NotificationsNone,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(52.dp)
-                        )
-                        Text(
-                            text = AppStrings.get("no_notifications", language),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(PrimaryGreen),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "إشعارات الهاتف الخارجية مفعلة 🔔",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PrimaryGreen
+                                )
+                                Text(
+                                    text = "انقر لتجربة إرسال إشعار فوري يظهر في شريط هاتفك بأيقونة وصلني",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(vertical = 4.dp)
-                    ) {
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                ) {
+                    if (notifications.isEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 36.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.NotificationsNone,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(52.dp)
+                            )
+                            Text(
+                                text = AppStrings.get("no_notifications", language),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
                         items(
                             items = notifications,
                             key = { it.id }
@@ -246,6 +300,7 @@ fun NotificationCenterDialog(
                             }
                         }
                     }
+                }
                 }
             }
         },

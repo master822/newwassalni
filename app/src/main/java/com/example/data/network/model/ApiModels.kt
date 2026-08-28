@@ -265,6 +265,7 @@ data class ChatMessageDto(
     @Json(name = "latitude") val latitude: Double? = null,
     @Json(name = "longitude") val longitude: Double? = null,
     @Json(name = "receiver_id") val receiverId: String? = "",
+    @Json(name = "is_read") val isRead: Boolean? = false,
     @Json(name = "created_at") val createdAt: String? = null
 )
 

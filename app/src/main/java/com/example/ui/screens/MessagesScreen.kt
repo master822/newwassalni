@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -33,15 +34,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.R
 import com.example.data.model.AppLanguage
 import com.example.data.model.ChatMessageEntity
 import com.example.data.model.RideEntity
+import com.example.data.model.UserEntity
 import com.example.ui.components.RatingDialog
 import com.example.ui.components.ChatImageView
 import com.example.ui.components.FullscreenPhotoViewerDialog
@@ -51,6 +55,37 @@ import com.example.util.AudioRecordManager
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+
+private fun launchWhatsApp(context: Context, rawPhone: String, messageText: String) {
+    try {
+        var cleanNumber = rawPhone.replace("+", "").filter { it.isDigit() }
+        if (cleanNumber.startsWith("00")) {
+            cleanNumber = cleanNumber.removePrefix("00")
+        }
+        if (cleanNumber.startsWith("09") && cleanNumber.length == 10) {
+            cleanNumber = "963" + cleanNumber.removePrefix("0")
+        } else if (cleanNumber.startsWith("9") && cleanNumber.length == 9) {
+            cleanNumber = "963$cleanNumber"
+        }
+        val encodedMsg = Uri.encode(messageText)
+        val url = if (messageText.isNotBlank()) {
+            "https://api.whatsapp.com/send?phone=$cleanNumber&text=$encodedMsg"
+        } else {
+            "https://api.whatsapp.com/send?phone=$cleanNumber"
+        }
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            setPackage("com.whatsapp")
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            context.startActivity(fallbackIntent)
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "تعذر فتح تطبيق واتساب", Toast.LENGTH_SHORT).show()
+    }
+}
 
 data class ConversationItem(
     val ride: RideEntity,
@@ -73,6 +108,7 @@ fun MessagesScreen(
     messages: List<ChatMessageEntity>,
     allRides: List<RideEntity>,
     allChatMessages: List<ChatMessageEntity> = emptyList(),
+    allUsers: List<UserEntity> = emptyList(),
     language: AppLanguage,
     currentUserId: String = "user_current",
     onSelectConversation: (RideEntity) -> Unit,
@@ -98,7 +134,7 @@ fun MessagesScreen(
     }
 
     // Auto mark active ride messages as read
-    LaunchedEffect(ride?.id) {
+    LaunchedEffect(ride?.id, messages.size, messages.lastOrNull()?.id) {
         ride?.id?.let { rId ->
             onMarkMessagesAsRead?.invoke(rId)
         }
@@ -886,6 +922,37 @@ fun MessagesScreen(
             messages
         }
 
+        val isDirectChat = ride.id.startsWith("chat_user_")
+        val targetUserId = if (isDirectChat) ride.id.removePrefix("chat_user_") else ""
+        val otherPartyUser = when {
+            isDirectChat && !isUserAdmin -> null
+            isDirectChat && isUserAdmin -> allUsers.find { it.id == targetUserId }
+            currentUserId == ride.driverId -> {
+                val otherMsg = messages.lastOrNull { it.senderId != currentUserId && it.senderId.isNotBlank() }
+                allUsers.find { it.id == otherMsg?.senderId }
+            }
+            else -> allUsers.find { it.id == ride.driverId }
+        }
+
+        val otherPartyPhone = otherPartyUser?.phone?.ifBlank { null }
+            ?: if (isDirectChat && !isUserAdmin) "+963988123456"
+            else if (ride.driverId.isNotBlank()) {
+                allUsers.find { it.id == ride.driverId }?.phone?.ifBlank { "+963988123456" } ?: "+963988123456"
+            } else "+963988123456"
+
+        val otherPartyName = when {
+            isDirectChat && !isUserAdmin -> "إدارة التطبيق"
+            otherPartyUser != null && otherPartyUser.name.isNotBlank() -> otherPartyUser.name
+            currentUserId == ride.driverId -> "راكب الرحلة"
+            else -> ride.driverName
+        }
+
+        val defaultWhatsAppMsg = if (isDirectChat && !isUserAdmin) {
+            "مرحباً إدارة وصلني، أود الاستفسار بخصوص الدعم الفني"
+        } else {
+            "مرحباً $otherPartyName، أنا أتواصل معك عبر تطبيق وصلني بخصوص رحلة (${ride.startCity} إلى ${ride.endCity})"
+        }
+
         // Recording timer effect
         LaunchedEffect(isRecordingAudio) {
             if (isRecordingAudio) {
@@ -1004,17 +1071,31 @@ fun MessagesScreen(
                         }
                     }
 
-                    // Action buttons: Direct Call, Rate, and Delete Conversation
+                    // Action buttons: WhatsApp, Direct Call, Rate, and Delete Conversation
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         IconButton(
                             onClick = {
-                                val phone = "+963988123456"
-                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                                launchWhatsApp(context, otherPartyPhone, defaultWhatsAppMsg)
+                            },
+                            modifier = Modifier.testTag("whatsapp_chat_button")
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_whatsapp),
+                                contentDescription = "التواصل عبر واتساب",
+                                tint = Color(0xFF25D366),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$otherPartyPhone"))
                                 context.startActivity(intent)
-                            }
+                            },
+                            modifier = Modifier.testTag("direct_call_button")
                         ) {
                             Icon(Icons.Filled.Call, contentDescription = "اتصال", tint = PrimaryGreen)
                         }
@@ -1082,6 +1163,23 @@ fun MessagesScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                     )
+                                    Button(
+                                        onClick = {
+                                            launchWhatsApp(context, otherPartyPhone, defaultWhatsAppMsg)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.testTag("empty_state_whatsapp_button")
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_whatsapp),
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("التواصل المباشر عبر واتساب", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
                                 }
                             }
                         }

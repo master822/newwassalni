@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.model.*
 import com.example.data.repository.WassalniRepository
+import com.example.util.AppNotificationManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
@@ -189,10 +190,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _deletedChatRideIds = MutableStateFlow<Set<String>>(emptySet())
     val deletedChatRideIds: StateFlow<Set<String>> = _deletedChatRideIds.asStateFlow()
 
-    val unreadMessagesCount: StateFlow<Int> = combine(allChatMessages, activeUserId, _deletedChatRideIds) { messages, uid, deletedRides ->
+    val unreadMessagesCount: StateFlow<Int> = combine(allChatMessages, activeUserId, _deletedChatRideIds, _selectedRide) { messages, uid, deletedRides, selRide ->
         val currentUid = uid.ifBlank { currentUserId }
+        val activeRideId = selRide?.id
         messages.count { msg ->
-            msg.rideId !in deletedRides && !msg.isRead && msg.senderId != currentUid && (msg.receiverId == currentUid || msg.receiverId.isBlank() || msg.receiverId == "passenger_id" || msg.receiverId == "driver_id")
+            msg.rideId !in deletedRides &&
+            msg.rideId != activeRideId &&
+            !msg.isRead &&
+            msg.senderId != currentUid &&
+            (msg.receiverId == currentUid || msg.receiverId.isBlank() || msg.receiverId == "passenger_id" || msg.receiverId == "driver_id" || (_isAdminLoggedIn.value && msg.receiverId == "admin"))
         }
     }.catch { emit(0) }
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
@@ -213,6 +219,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val activeRide = _selectedRide.value
                     if (activeRide != null) {
                         repository.syncChatMessages(activeRide.id)
+                        dao.markAllRideChatMessagesAsRead(activeRide.id)
                     }
                     repository.syncAllChatMessages()
                     if (repository.tokenMgr.isLoggedIn()) {
@@ -689,7 +696,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun selectRide(ride: RideEntity?) {
         _selectedRide.value = ride
         if (ride != null) {
-            markChatMessagesAsRead(ride.id)
+            markRideMessagesAsRead(ride.id)
             viewModelScope.launch {
                 repository.syncChatMessages(ride.id)
             }
@@ -697,10 +704,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun markChatMessagesAsRead(rideId: String) {
+        markRideMessagesAsRead(rideId)
+    }
+
+    fun openRideChat(rideId: String) {
         viewModelScope.launch {
-            val uid = activeUserId.value.ifBlank { currentUserId }
-            dao.markChatMessagesAsRead(rideId, uid)
-            dao.markAllRideChatMessagesAsRead(rideId)
+            val ride = dao.getRideById(rideId) ?: allRides.value.find { it.id == rideId }
+            if (ride != null) {
+                selectRide(ride)
+                setScreen("messages")
+            } else {
+                setScreen("messages")
+            }
+        }
+    }
+
+    fun showTestExternalNotification() {
+        AppNotificationManager.showTestNotification(getApplication())
+    }
+
+    private suspend fun insertAndNotify(notif: NotificationEntity) {
+        dao.insertNotification(notif)
+        if (notif.userId == currentUserId) {
+            AppNotificationManager.showSystemNotification(
+                context = getApplication(),
+                id = notif.id,
+                title = notif.title,
+                message = notif.message,
+                type = notif.type
+            )
         }
     }
 
@@ -778,7 +810,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 message = "تم تحديث صورتك الشخصية وبيانات حسابك بنجاح وستظهر لجميع المستخدمين.",
                 type = NotificationType.SYSTEM.name
             )
-            dao.insertNotification(notif)
+            insertAndNotify(notif)
         }
     }
 
@@ -983,17 +1015,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun markRideMessagesAsRead(rideId: String) {
         viewModelScope.launch {
-            val currentUid = currentUserId
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
             dao.markAllRideChatMessagesAsRead(rideId)
             if (currentUid.isNotBlank()) {
                 dao.markChatMessagesAsRead(rideId, currentUid)
+                dao.markChatNotificationsAsRead(currentUid)
             }
+            try {
+                repository.markChatMessagesAsRead(rideId)
+            } catch (_: Exception) {}
         }
     }
 
     fun markAllMessagesAsRead() {
         viewModelScope.launch {
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
             dao.markAllChatMessagesAsRead()
+            if (currentUid.isNotBlank()) {
+                dao.markChatNotificationsAsRead(currentUid)
+            }
+            dao.markAllChatNotificationsAsRead()
+            try {
+                repository.markAllChatMessagesAsRead()
+            } catch (_: Exception) {}
         }
     }
 
@@ -1071,7 +1115,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 type = "RATING",
                 timestamp = System.currentTimeMillis()
             )
-            dao.insertNotification(notification)
+            insertAndNotify(notification)
             addAdminActivityLog("تقييم سائق", "تم تقييم السائق $driverId بدرجة $ratingScore نجوم للرحلة $rideId")
         }
     }
@@ -1328,7 +1372,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 message = "تمت إعادة تعيين كلمة المرور الخاصة بك إلى (123456) من قبل مدير النظام.",
                 type = NotificationType.SYSTEM.name
             )
-            dao.insertNotification(notif)
+            insertAndNotify(notif)
             addAdminActivityLog("إعادة تعيين كلمة مرور", "تم إعادة تعيين كلمة المرور للمستخدم $userId")
         }
     }
@@ -1377,7 +1421,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     type = NotificationType.SYSTEM.name,
                     timestamp = System.currentTimeMillis()
                 )
-                dao.insertNotification(notif)
+                insertAndNotify(notif)
             }
             addAdminActivityLog("حذف رحلة نهائياً", "تم حذف الرحلة $rideId من قاعدة البيانات نهائياً")
         }
@@ -1403,7 +1447,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     type = NotificationType.SYSTEM.name,
                     timestamp = System.currentTimeMillis()
                 )
-                dao.insertNotification(notif)
+                insertAndNotify(notif)
             }
             addAdminActivityLog("إلغاء وحذف رحلة", "تم إلغاء وحذف الرحلة $rideId بواسطة الأدمن بسبب: $reason")
         }
@@ -1522,7 +1566,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     type = type,
                     timestamp = System.currentTimeMillis()
                 )
-                dao.insertNotification(notif)
+                insertAndNotify(notif)
             }
             addAdminActivityLog("إرسال إشعار جماعي", "العنوان: $title | الفئة: $targetAudience")
         }

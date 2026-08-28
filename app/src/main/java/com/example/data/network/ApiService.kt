@@ -140,6 +140,14 @@ interface ApiService {
         @Path("messageId") messageId: String
     ): Response<ApiResponse<Unit>>
 
+    @PUT("api/messages/read/{rideId}")
+    suspend fun markChatMessagesAsRead(
+        @Path("rideId") rideId: String
+    ): Response<ApiResponse<Unit>>
+
+    @PUT("api/messages/read/all")
+    suspend fun markAllChatMessagesAsRead(): Response<ApiResponse<Unit>>
+
     // ==========================================
     // 7. Notifications Endpoints
     // ==========================================

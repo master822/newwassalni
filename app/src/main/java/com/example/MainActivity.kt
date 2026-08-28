@@ -1,10 +1,17 @@
 package com.example
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import com.example.util.AppNotificationManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -38,14 +45,55 @@ import com.example.ui.theme.*
 import com.example.viewmodel.AppViewModel
 
 class MainActivity : ComponentActivity() {
+
+    private var appViewModel: AppViewModel? = null
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        android.util.Log.d("MainActivity", "Notification permission granted: $isGranted")
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        if (intent == null) return
+        val openNotifs = intent.getBooleanExtra(AppNotificationManager.EXTRA_OPEN_NOTIFICATIONS, false)
+        val rideId = intent.getStringExtra(AppNotificationManager.EXTRA_RIDE_ID)
+        if (!rideId.isNullOrBlank()) {
+            appViewModel?.openRideChat(rideId)
+        } else if (openNotifs) {
+            appViewModel?.toggleNotificationsDialog(true)
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        createNotificationChannel()
+        AppNotificationManager.init(this)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         setContent {
             val viewModel: AppViewModel = viewModel()
+            appViewModel = viewModel
+
+            LaunchedEffect(Unit) {
+                handleNotificationIntent(intent)
+            }
 
             val language by viewModel.appLanguage.collectAsStateWithLifecycle()
             val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
@@ -338,9 +386,13 @@ class MainActivity : ComponentActivity() {
                                             messages = chatMessages,
                                             allRides = allRides.filter { it.id !in deletedChatRideIds },
                                             allChatMessages = allChatMessages,
+                                            allUsers = allUsers,
                                             language = language,
                                             currentUserId = viewModel.activeUserId.value.ifBlank { viewModel.currentUserId },
-                                            onSelectConversation = { r -> viewModel.selectRide(r) },
+                                            onSelectConversation = { r -> 
+                                                viewModel.selectRide(r)
+                                                viewModel.markRideMessagesAsRead(r.id)
+                                            },
                                             onSendMessage = { text, img, audio, audioDuration, isLoc ->
                                                 val rideId = selectedRide?.id ?: "ride_1"
                                                 val currentUid = viewModel.activeUserId.value.ifBlank { viewModel.currentUserId }
@@ -501,6 +553,9 @@ class MainActivity : ComponentActivity() {
                             },
                             onDeleteAllNotifications = {
                                 viewModel.deleteAllNotifications()
+                            },
+                            onTestNotification = {
+                                viewModel.showTestExternalNotification()
                             }
                         )
                     }
@@ -568,27 +623,6 @@ class MainActivity : ComponentActivity() {
                 }
                 }
             }
-        }
-    }
-
-    private fun createNotificationChannel() {
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                val channelId = "wassalni_notifications"
-                val channelName = getString(R.string.notification_channel_name)
-                val channelDesc = getString(R.string.notification_channel_desc)
-                val importance = android.app.NotificationManager.IMPORTANCE_DEFAULT
-                val channel = android.app.NotificationChannel(channelId, channelName, importance).apply {
-                    description = channelDesc
-                    enableLights(true)
-                    lightColor = android.graphics.Color.parseColor("#0F6E56")
-                    enableVibration(true)
-                }
-                val notificationManager = getSystemService(android.app.NotificationManager::class.java)
-                notificationManager?.createNotificationChannel(channel)
-            }
-        } catch (e: Throwable) {
-            e.printStackTrace()
         }
     }
 }

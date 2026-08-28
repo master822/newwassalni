@@ -29,6 +29,7 @@ const { authenticateOptionalToken, authenticateToken } = require('../middleware/
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION DEFAULT NULL;
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION DEFAULT NULL;
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_driver BOOLEAN DEFAULT FALSE;
+        ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
       EXCEPTION
         WHEN OTHERS THEN NULL;
@@ -57,6 +58,7 @@ function formatChatMessageRow(row) {
     latitude: row.latitude !== null && row.latitude !== undefined && !isNaN(parseFloat(row.latitude)) ? parseFloat(row.latitude) : null,
     longitude: row.longitude !== null && row.longitude !== undefined && !isNaN(parseFloat(row.longitude)) ? parseFloat(row.longitude) : null,
     receiver_id: row.receiver_id || '',
+    is_read: Boolean(row.is_read),
     created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
   };
 }
@@ -223,6 +225,60 @@ router.delete('/item/:messageId', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Error deleting message:', err);
     res.status(500).json({ success: false, error: 'Failed to delete message' });
+  }
+});
+
+/**
+ * 6. Mark chat messages as read for a ride or conversation
+ */
+router.put('/read/:rideId', authenticateOptionalToken, async (req, res) => {
+  try {
+    const { rideId } = req.params;
+    const userId = req.user?.userId || req.headers['x-user-id'] || '';
+    if (userId) {
+      await db.query(
+        'UPDATE chat_messages SET is_read = TRUE WHERE ride_id = $1 AND sender_id != $2',
+        [rideId, userId]
+      );
+      await db.query(
+        'UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND type = $2',
+        [userId, 'CHAT']
+      );
+    } else {
+      await db.query(
+        'UPDATE chat_messages SET is_read = TRUE WHERE ride_id = $1',
+        [rideId]
+      );
+    }
+    res.json({ success: true, message: 'Messages marked as read' });
+  } catch (err) {
+    console.error('Error marking messages as read:', err);
+    res.status(500).json({ success: false, error: 'Database error' });
+  }
+});
+
+/**
+ * 7. Mark all chat messages as read across all conversations
+ */
+router.put('/read/all', authenticateOptionalToken, async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.headers['x-user-id'] || '';
+    if (userId) {
+      await db.query(
+        'UPDATE chat_messages SET is_read = TRUE WHERE sender_id != $1',
+        [userId]
+      );
+      await db.query(
+        'UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND type = $2',
+        [userId, 'CHAT']
+      );
+    } else {
+      await db.query('UPDATE chat_messages SET is_read = TRUE');
+    }
+    res.json({ success: true, message: 'All messages marked as read' });
+  } catch (err) {
+    console.error('Error marking all messages as read:', err);
+    res.status(500).json({ success: false, error: 'Database error' });
   }
 });
 

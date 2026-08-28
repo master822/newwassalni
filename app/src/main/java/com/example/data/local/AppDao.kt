@@ -122,6 +122,15 @@ interface AppDao {
     @Query("UPDATE chat_messages SET isRead = 1")
     suspend fun markAllChatMessagesAsRead()
 
+    @Query("SELECT id FROM chat_messages WHERE isRead = 1")
+    suspend fun getReadChatMessageIds(): List<String>
+
+    @Query("UPDATE notifications SET isRead = 1 WHERE userId = :userId AND type = 'CHAT'")
+    suspend fun markChatNotificationsAsRead(userId: String)
+
+    @Query("UPDATE notifications SET isRead = 1 WHERE type = 'CHAT'")
+    suspend fun markAllChatNotificationsAsRead()
+
     @Query("UPDATE chat_messages SET messageText = :newText WHERE id = :messageId")
     suspend fun updateChatMessageText(messageId: String, newText: String)
 

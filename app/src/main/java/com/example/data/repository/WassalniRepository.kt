@@ -7,6 +7,7 @@ import com.example.data.network.ApiClient
 import com.example.data.network.ApiService
 import com.example.data.network.TokenManager
 import com.example.data.network.model.*
+import com.example.util.AppNotificationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -25,6 +26,9 @@ class WassalniRepository(
     private val appContext: Context = context.applicationContext
 
     val tokenMgr: TokenManager get() = tokenManager
+
+    private var hasSeededNotificationHistory = false
+    private var hasSeededChatHistory = false
 
     private fun normalizePhone(input: String): String {
         val digits = input.filter { it.isDigit() }
@@ -939,7 +943,9 @@ class WassalniRepository(
             val res = api.getChatMessages(rideId)
             if (res.isSuccessful && res.body()?.success == true) {
                 val dtoList = res.body()?.data ?: emptyList()
+                val readIds = dao.getReadChatMessageIds().toSet()
                 val entities = dtoList.map { dto ->
+                    val isReadState = (dto.isRead == true) || readIds.contains(dto.id)
                     ChatMessageEntity(
                         id = dto.id,
                         rideId = dto.rideId,
@@ -952,10 +958,31 @@ class WassalniRepository(
                         isLocation = dto.isLocation,
                         latitude = dto.latitude,
                         longitude = dto.longitude,
+                        isRead = isReadState,
                         timestamp = parseTimestamp(dto.createdAt ?: dto.timestamp)
                     )
                 }
                 dao.insertChatMessages(entities)
+
+                val currentUid = tokenMgr.getUserId()
+                entities.filter { it.senderId != currentUid && !it.isRead }.forEach { msg ->
+                    val preview = when {
+                        msg.messageText.isNotBlank() -> msg.messageText
+                        !msg.imageUri.isNullOrBlank() -> "📷 أرسل صورة"
+                        !msg.audioUri.isNullOrBlank() -> "🎙️ تسجيل صوتي"
+                        msg.isLocation -> "📍 مشاركة موقع"
+                        else -> "رسالة جديدة"
+                    }
+                    AppNotificationManager.showSystemNotification(
+                        context = appContext,
+                        id = msg.id,
+                        title = "وصلني - رسالة جديدة",
+                        message = preview,
+                        type = "CHAT",
+                        rideId = msg.rideId
+                    )
+                }
+
                 Result.success(entities)
             } else {
                 Result.failure(Exception("Failed to fetch chat messages"))
@@ -970,7 +997,9 @@ class WassalniRepository(
             val res = api.getAllChatMessages()
             if (res.isSuccessful && res.body()?.success == true) {
                 val dtoList = res.body()?.data ?: emptyList()
+                val readIds = dao.getReadChatMessageIds().toSet()
                 val entities = dtoList.map { dto ->
+                    val isReadState = (dto.isRead == true) || readIds.contains(dto.id)
                     ChatMessageEntity(
                         id = dto.id,
                         rideId = dto.rideId,
@@ -983,16 +1012,67 @@ class WassalniRepository(
                         isLocation = dto.isLocation,
                         latitude = dto.latitude,
                         longitude = dto.longitude,
+                        isRead = isReadState,
                         timestamp = parseTimestamp(dto.createdAt ?: dto.timestamp)
                     )
                 }
                 dao.insertChatMessages(entities)
+
+                if (!hasSeededChatHistory) {
+                    AppNotificationManager.seedExistingIds(appContext, entities.map { it.id })
+                    hasSeededChatHistory = true
+                } else {
+                    val currentUid = tokenMgr.getUserId()
+                    entities.filter { it.senderId != currentUid && !it.isRead }.forEach { msg ->
+                        val preview = when {
+                            msg.messageText.isNotBlank() -> msg.messageText
+                            !msg.imageUri.isNullOrBlank() -> "📷 أرسل صورة"
+                            !msg.audioUri.isNullOrBlank() -> "🎙️ تسجيل صوتي"
+                            msg.isLocation -> "📍 مشاركة موقع"
+                            else -> "رسالة جديدة"
+                        }
+                        AppNotificationManager.showSystemNotification(
+                            context = appContext,
+                            id = msg.id,
+                            title = "وصلني - رسالة جديدة",
+                            message = preview,
+                            type = "CHAT",
+                            rideId = msg.rideId
+                        )
+                    }
+                }
+
                 Result.success(entities)
             } else {
                 Result.failure(Exception("Failed to sync all chat messages"))
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    suspend fun markChatMessagesAsRead(rideId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            dao.markAllRideChatMessagesAsRead(rideId)
+            val currentUid = tokenMgr.getUserId()
+            if (currentUid.isNotBlank()) {
+                dao.markChatNotificationsAsRead(currentUid)
+            }
+            val res = api.markChatMessagesAsRead(rideId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.success(Unit)
+        }
+    }
+
+    suspend fun markAllChatMessagesAsRead(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            dao.markAllChatMessagesAsRead()
+            dao.markAllChatNotificationsAsRead()
+            val res = api.markAllChatMessagesAsRead()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.success(Unit)
         }
     }
 
@@ -1197,6 +1277,20 @@ class WassalniRepository(
                 }
                 if (entities.isNotEmpty()) {
                     dao.insertNotifications(entities)
+                    if (!hasSeededNotificationHistory) {
+                        AppNotificationManager.seedExistingIds(appContext, entities.map { it.id })
+                        hasSeededNotificationHistory = true
+                    } else {
+                        entities.filter { !it.isRead }.forEach { notif ->
+                            AppNotificationManager.showSystemNotification(
+                                context = appContext,
+                                id = notif.id,
+                                title = notif.title,
+                                message = notif.message,
+                                type = notif.type
+                            )
+                        }
+                    }
                 }
                 Result.success(entities)
             } else {
@@ -1381,14 +1475,20 @@ class WassalniRepository(
             )
 
             // Insert user notification
-            dao.insertNotification(
-                NotificationEntity(
-                    id = java.util.UUID.randomUUID().toString(),
-                    userId = userId,
-                    title = if (points >= 0) "🎁 إضافة رصيد" else "💳 خصم رصيد",
-                    message = "قام المشرف بتعديل رصيدك بمقدار $points نقطة. ($reason)",
-                    type = NotificationType.SYSTEM.name
-                )
+            val adjustNotif = NotificationEntity(
+                id = java.util.UUID.randomUUID().toString(),
+                userId = userId,
+                title = if (points >= 0) "🎁 إضافة رصيد" else "💳 خصم رصيد",
+                message = "قام المشرف بتعديل رصيدك بمقدار $points نقطة. ($reason)",
+                type = NotificationType.SYSTEM.name
+            )
+            dao.insertNotification(adjustNotif)
+            AppNotificationManager.showSystemNotification(
+                context = appContext,
+                id = adjustNotif.id,
+                title = adjustNotif.title,
+                message = adjustNotif.message,
+                type = adjustNotif.type
             )
 
             // Sync admin users list immediately so UI observes new values
