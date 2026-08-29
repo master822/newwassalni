@@ -462,6 +462,38 @@ class WassalniRepository(
 
     suspend fun getProfile(): Result<UserDto> = fetchCurrentUserProfile()
 
+    suspend fun syncPublicUsers(): Result<List<UserEntity>> = withContext(Dispatchers.IO) {
+        try {
+            val res = api.getPublicUsers()
+            if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                val userDtos = res.body()!!.data!!
+                val entities = userDtos.map { u ->
+                    UserEntity(
+                        id = u.id,
+                        name = u.name,
+                        email = u.email ?: "",
+                        phone = u.phone ?: "",
+                        avatarUrl = u.avatarUrl ?: "",
+                        rating = u.rating ?: 5.0f,
+                        rideCount = u.rideCount ?: 0,
+                        isVerified = u.isVerified ?: true,
+                        walletPoints = u.walletPoints ?: 50,
+                        isSuspended = u.isSuspended ?: false,
+                        suspendReason = u.suspendReason,
+                        userRole = u.userRole ?: "سائق وراكب",
+                        referralCode = u.referralCode ?: "WASALNI-100"
+                    )
+                }
+                dao.insertUsers(entities)
+                Result.success(entities)
+            } else {
+                Result.failure(Exception("Failed to fetch public users"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun updateProfile(name: String, avatarUrl: String, phone: String): Result<UserDto> = withContext(Dispatchers.IO) {
         try {
             val res = api.updateProfile(UpdateProfileRequest(name = name, avatarUrl = avatarUrl, phone = phone))
@@ -507,6 +539,23 @@ class WassalniRepository(
                 dao.updateUserProfileInRequestedTrips(updated.id, updated.name, updated.avatarUrl)
             }
             Result.success(UserDto(id = localUser?.id ?: currentUid, name = name, email = localUser?.email ?: "", phone = phone, avatarUrl = avatarUrl))
+        }
+    }
+
+    suspend fun updateFcmToken(token: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            if (token.isNotBlank()) {
+                tokenManager.saveFcmToken(token)
+                if (tokenManager.isLoggedIn()) {
+                    val res = api.updateFcmToken(com.example.data.network.model.FcmTokenRequest(token))
+                    if (res.isSuccessful) {
+                        return@withContext Result.success(Unit)
+                    }
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

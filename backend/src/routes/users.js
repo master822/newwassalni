@@ -28,6 +28,22 @@ router.get('/profile', authenticateToken, async (req, res) => {
 });
 
 /**
+ * 1.1 Get public user profiles (for displaying avatar and name across the app)
+ */
+router.get('/public', async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, phone, avatar_url, rating, ride_count, is_verified, role, user_role
+       FROM users`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error('Error fetching public users:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch users' });
+  }
+});
+
+/**
  * 2. Update user profile (Name, Avatar, Phone)
  */
 router.put('/profile', authenticateToken, async (req, res) => {

@@ -46,6 +46,9 @@ interface ApiService {
     @GET("api/users/profile")
     suspend fun getProfile(): Response<ApiResponse<UserDto>>
 
+    @GET("api/users/public")
+    suspend fun getPublicUsers(): Response<ApiResponse<List<UserDto>>>
+
     @PUT("api/users/profile")
     suspend fun updateProfile(@Body request: UpdateProfileRequest): Response<ApiResponse<UserDto>>
 

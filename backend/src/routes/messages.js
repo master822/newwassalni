@@ -69,7 +69,11 @@ function formatChatMessageRow(row) {
 router.get('/sync/all', authenticateOptionalToken, async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT * FROM chat_messages ORDER BY created_at ASC LIMIT 1000'
+      `SELECT m.*, COALESCE(NULLIF(u.avatar_url, ''), m.sender_avatar) AS sender_avatar,
+              COALESCE(NULLIF(u.name, ''), m.sender_name) AS sender_name
+       FROM chat_messages m
+       LEFT JOIN users u ON m.sender_id = u.id
+       ORDER BY m.created_at ASC LIMIT 1000`
     );
     const formatted = result.rows.map(formatChatMessageRow);
     res.json({ success: true, data: formatted });
@@ -87,7 +91,12 @@ router.get('/:rideId', authenticateOptionalToken, async (req, res) => {
     const { rideId } = req.params;
 
     const result = await db.query(
-      'SELECT * FROM chat_messages WHERE ride_id = $1 ORDER BY created_at ASC',
+      `SELECT m.*, COALESCE(NULLIF(u.avatar_url, ''), m.sender_avatar) AS sender_avatar,
+              COALESCE(NULLIF(u.name, ''), m.sender_name) AS sender_name
+       FROM chat_messages m
+       LEFT JOIN users u ON m.sender_id = u.id
+       WHERE m.ride_id = $1
+       ORDER BY m.created_at ASC`,
       [rideId]
     );
     const formatted = result.rows.map(formatChatMessageRow);
@@ -176,17 +185,41 @@ router.post('/:rideId', authenticateOptionalToken, async (req, res) => {
       receiverId || '',
     ]);
 
-    // If a recipient is specified, also insert an in-app notification so the receiver gets notified
+    // Determine all recipients to notify
+    const targetReceivers = new Set();
     if (receiverId && receiverId !== senderId && receiverId !== 'all') {
+      targetReceivers.add(receiverId);
+    } else if (rideId.startsWith('chat_user_')) {
+      const otherUid = rideId.replace('chat_user_', '');
+      if (otherUid !== senderId) targetReceivers.add(otherUid);
+    } else {
+      try {
+        const rideRow = await db.query('SELECT driver_id FROM rides WHERE id = $1', [rideId]);
+        if (rideRow.rows.length > 0) {
+          const driverId = rideRow.rows[0].driver_id;
+          if (senderId === driverId) {
+            const bookings = await db.query('SELECT DISTINCT passenger_id FROM ride_bookings WHERE ride_id = $1', [rideId]);
+            bookings.rows.forEach(b => {
+              if (b.passenger_id && b.passenger_id !== senderId) targetReceivers.add(b.passenger_id);
+            });
+          } else {
+            if (driverId && driverId !== senderId) targetReceivers.add(driverId);
+          }
+        }
+      } catch (_) {}
+    }
+
+    const notifTitle = `رسالة جديدة من ${senderName} 💬`;
+    const notifBody = audioUri ? `أرسل لك تسجيلاً صوتياً 🎙️ (${audioDuration} ث)` : (imageUri ? `أرسل لك صورة مرفقة 📷` : (message || 'رسالة جديدة'));
+
+    for (const recId of targetReceivers) {
       try {
         const notifId = `notif_${uuidv4().substring(0, 8)}`;
-        const notifTitle = `رسالة جديدة من ${senderName} 💬`;
-        const notifBody = audioUri ? `أرسل لك تسجيلاً صوتياً 🎙️ (${audioDuration} ث)` : (imageUri ? `أرسل لك صورة مرفقة 📷` : (message || 'رسالة جديدة'));
         await db.query(
           `INSERT INTO notifications (id, user_id, title, message, type, is_read)
            VALUES ($1, $2, $3, $4, 'CHAT', FALSE)
            ON CONFLICT (id) DO NOTHING`,
-          [notifId, receiverId, notifTitle, notifBody]
+          [notifId, recId, notifTitle, notifBody]
         );
       } catch (notifErr) {
         console.warn('Could not insert chat notification:', notifErr.message);
@@ -203,7 +236,7 @@ router.post('/:rideId', authenticateOptionalToken, async (req, res) => {
 /**
  * 4. Delete all messages for a ride (Delete conversation)
  */
-router.delete('/:rideId', authenticateToken, async (req, res) => {
+router.delete('/:rideId', authenticateOptionalToken, async (req, res) => {
   try {
     const { rideId } = req.params;
     await db.query('DELETE FROM chat_messages WHERE ride_id = $1', [rideId]);
@@ -217,7 +250,7 @@ router.delete('/:rideId', authenticateToken, async (req, res) => {
 /**
  * 5. Delete single message
  */
-router.delete('/item/:messageId', authenticateToken, async (req, res) => {
+router.delete('/item/:messageId', authenticateOptionalToken, async (req, res) => {
   try {
     const { messageId } = req.params;
     await db.query('DELETE FROM chat_messages WHERE id = $1', [messageId]);

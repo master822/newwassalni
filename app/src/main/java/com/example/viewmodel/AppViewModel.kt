@@ -214,6 +214,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         // Realtime Background Synchronization for Chat Messages & Notifications
         viewModelScope.launch {
+            var syncTick = 0
             while (isActive) {
                 try {
                     val activeRide = _selectedRide.value
@@ -224,6 +225,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     repository.syncAllChatMessages()
                     if (repository.tokenMgr.isLoggedIn()) {
                         repository.fetchNotifications()
+                    }
+                    syncTick++
+                    if (syncTick % 10 == 0) {
+                        repository.syncPublicUsers()
                     }
                 } catch (e: Exception) {
                     // Gracefully log without terminating loop
@@ -267,6 +272,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         repository.fetchRides()
         repository.fetchRequestedTrips()
         repository.fetchAdminUsers()
+        repository.syncPublicUsers()
         seedSampleUsersIfEmpty()
 
         if (repository.tokenMgr.isLoggedIn()) {
@@ -799,6 +805,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             try {
                 repository.updateProfile(name, avatarUrl, phone)
+                repository.syncPublicUsers()
+                repository.fetchRides()
+                repository.fetchRequestedTrips()
             } catch (e: Exception) {
                 // Ignore network errors, local state already updated
             }
@@ -811,6 +820,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 type = NotificationType.SYSTEM.name
             )
             insertAndNotify(notif)
+        }
+    }
+
+    fun updateFcmToken(token: String) {
+        viewModelScope.launch {
+            try {
+                repository.updateFcmToken(token)
+            } catch (e: Exception) {
+                android.util.Log.w("WassalniFCM", "Update FCM token failed: ${e.message}")
+            }
         }
     }
 

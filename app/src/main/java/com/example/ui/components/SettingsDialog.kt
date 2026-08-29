@@ -52,8 +52,9 @@ fun SettingsDialog(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            avatarUrl = it.toString()
-            Toast.makeText(context, "تم اختيار الصورة بنجاح!", Toast.LENGTH_SHORT).show()
+            val base64 = ChatImageLoader.compressUriToBase64(context, it.toString())
+            avatarUrl = base64 ?: it.toString()
+            Toast.makeText(context, "تم اختيار وتجهيز صورة البروفايل بنجاح!", Toast.LENGTH_SHORT).show()
         }
     }
 

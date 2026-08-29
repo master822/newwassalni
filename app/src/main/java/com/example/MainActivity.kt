@@ -87,12 +87,31 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        try {
+            com.example.service.WassalniBackgroundSyncReceiver.schedule(this)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error scheduling background sync", e)
+        }
+
         setContent {
             val viewModel: AppViewModel = viewModel()
             appViewModel = viewModel
 
             LaunchedEffect(Unit) {
                 handleNotificationIntent(intent)
+                try {
+                    com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val token = task.result
+                                if (!token.isNullOrBlank()) {
+                                    viewModel.updateFcmToken(token)
+                                }
+                            }
+                        }
+                } catch (e: Exception) {
+                    android.util.Log.w("MainActivity", "Firebase Messaging token fetch error: ${e.message}")
+                }
             }
 
             val language by viewModel.appLanguage.collectAsStateWithLifecycle()
@@ -347,6 +366,7 @@ class MainActivity : ComponentActivity() {
                                                 RideDetailScreen(
                                                     ride = ride,
                                                     language = language,
+                                                    allUsers = allUsers,
                                                     onBookRide = { r, seats -> viewModel.bookRide(r, seats) },
                                                     onOpenChat = { r ->
                                                         viewModel.selectRide(r)
@@ -387,6 +407,7 @@ class MainActivity : ComponentActivity() {
                                             allRides = allRides.filter { it.id !in deletedChatRideIds },
                                             allChatMessages = allChatMessages,
                                             allUsers = allUsers,
+                                            deletedChatRideIds = deletedChatRideIds,
                                             language = language,
                                             currentUserId = viewModel.activeUserId.value.ifBlank { viewModel.currentUserId },
                                             onSelectConversation = { r -> 
@@ -616,6 +637,10 @@ class MainActivity : ComponentActivity() {
                             onLogout = {
                                 viewModel.logoutUser()
                                 showAuthDialog = false
+                            },
+                            onOpenWallet = {
+                                showAuthDialog = false
+                                viewModel.setScreen("wallet")
                             },
                             onDismiss = { showAuthDialog = false }
                         )

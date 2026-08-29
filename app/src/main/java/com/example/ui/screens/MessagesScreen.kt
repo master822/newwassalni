@@ -98,7 +98,8 @@ data class ConversationItem(
     val lastTime: String,
     val unreadCount: Int = 0,
     val isAdminSupport: Boolean = false,
-    val isVerified: Boolean = false
+    val isVerified: Boolean = false,
+    val contactPhone: String? = null
 )
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -109,6 +110,7 @@ fun MessagesScreen(
     allRides: List<RideEntity>,
     allChatMessages: List<ChatMessageEntity> = emptyList(),
     allUsers: List<UserEntity> = emptyList(),
+    deletedChatRideIds: Set<String> = emptySet(),
     language: AppLanguage,
     currentUserId: String = "user_current",
     onSelectConversation: (RideEntity) -> Unit,
@@ -179,14 +181,19 @@ fun MessagesScreen(
     }
 
     val isUserAdmin = currentUserId.contains("admin", ignoreCase = true)
+    var localDeletedIds by remember { mutableStateOf(setOf<String>()) }
+    val effectiveDeleted = remember(deletedChatRideIds, localDeletedIds) {
+        deletedChatRideIds + localDeletedIds
+    }
 
     // Build list of active conversations (only those with messages, direct chats, or active rides)
-    val conversationsList = remember(allRides, allChatMessages, currentUserId) {
+    val conversationsList = remember(allRides, allChatMessages, currentUserId, effectiveDeleted, allUsers) {
         val list = mutableListOf<ConversationItem>()
         val processedRideIds = mutableSetOf<String>()
 
         // 1. Process rides from allRides
         for (r in allRides) {
+            if (r.id in effectiveDeleted) continue
             val isDirectChat = r.id.startsWith("chat_user_")
             val targetUserId = if (isDirectChat) r.id.removePrefix("chat_user_") else ""
 
@@ -200,6 +207,16 @@ fun MessagesScreen(
 
             if (isDirectChat || hasMsgs || r.driverId == currentUserId) {
                 processedRideIds.add(r.id)
+
+                val otherUser = if (isDirectChat) {
+                    if (isUserAdmin) allUsers.find { it.id == targetUserId } else null
+                } else if (currentUserId == r.driverId) {
+                    val lastOtherMsg = rideMsgs.lastOrNull { it.senderId != currentUserId && it.senderId.isNotBlank() }
+                    allUsers.find { it.id == lastOtherMsg?.senderId }
+                } else {
+                    allUsers.find { it.id == r.driverId }
+                }
+
                 val lastMsg = rideMsgs.lastOrNull()
                 val unread = rideMsgs.count {
                     !it.isRead && it.senderId != currentUserId &&
@@ -232,13 +249,14 @@ fun MessagesScreen(
 
                 val displayName = when {
                     isDirectChat && !isUserAdmin -> "إدارة التطبيق (الدعم الفني) 🛡️"
-                    isDirectChat && isUserAdmin -> r.driverName
-                    currentUserId == r.driverId -> "ركاب رحلة ${r.startCity} ➔ ${r.endCity}"
-                    else -> r.driverName
+                    isDirectChat && isUserAdmin -> (otherUser?.name?.ifBlank { null } ?: r.driverName)
+                    currentUserId == r.driverId -> (otherUser?.name?.ifBlank { null } ?: "ركاب رحلة ${r.startCity} ➔ ${r.endCity}")
+                    else -> (otherUser?.name?.ifBlank { null } ?: r.driverName)
                 }
 
                 val displayAvatar = when {
                     isDirectChat && !isUserAdmin -> ""
+                    otherUser != null && otherUser.avatarUrl.isNotBlank() -> otherUser.avatarUrl
                     else -> r.driverAvatar
                 }
 
@@ -250,30 +268,39 @@ fun MessagesScreen(
                     else -> "سائق معتمد"
                 }
 
+                val phone = otherUser?.phone?.ifBlank { null }
+                    ?: if (isDirectChat && !isUserAdmin) "+963988123456" else null
+
                 list.add(
                     ConversationItem(
                         ride = r,
                         contactName = displayName,
                         contactAvatar = displayAvatar,
                         contactRole = displayRole,
-                        contactRating = if (isDirectChat && !isUserAdmin) 5.0f else r.driverRating,
+                        contactRating = if (isDirectChat && !isUserAdmin) 5.0f else (otherUser?.rating?.takeIf { it > 0 } ?: r.driverRating),
                         lastMessage = lastSnippet,
                         lastMessageType = lastType,
                         lastTime = lastMsgTime,
                         unreadCount = unread,
                         isAdminSupport = isDirectChat && !isUserAdmin,
-                        isVerified = if (isDirectChat) true else r.driverVerified
+                        isVerified = if (isDirectChat) true else r.driverVerified,
+                        contactPhone = phone
                     )
                 )
             }
         }
 
         // 2. Also include direct chats or other active chat rooms from allChatMessages if not already in allRides
-        val remainingChatIds = allChatMessages.map { it.rideId }.distinct().filter { it !in processedRideIds }
+        val remainingChatIds = allChatMessages.map { it.rideId }.distinct().filter { it !in processedRideIds && it !in effectiveDeleted }
         for (chatId in remainingChatIds) {
             val isDirectChat = chatId.startsWith("chat_user_")
             val targetUserId = if (isDirectChat) chatId.removePrefix("chat_user_") else ""
             if (isDirectChat && !isUserAdmin && targetUserId != currentUserId) continue
+
+            val directUser = allUsers.find { it.id == targetUserId }
+            val directAvatar = if (!isUserAdmin) "" else (directUser?.avatarUrl ?: "")
+            val directName = if (!isUserAdmin) "إدارة التطبيق (الدعم الفني) 🛡️" else (directUser?.name ?: "مستخدم ($targetUserId)")
+            val directPhone = directUser?.phone ?: if (!isUserAdmin) "+963988123456" else null
 
             val rideMsgs = allChatMessages.filter { it.rideId == chatId }.sortedBy { it.timestamp }
             val lastMsg = rideMsgs.lastOrNull()
@@ -306,8 +333,8 @@ fun MessagesScreen(
             val syntheticRide = RideEntity(
                 id = chatId,
                 driverId = if (isUserAdmin) targetUserId else "admin",
-                driverName = if (!isUserAdmin) "إدارة التطبيق (الدعم الفني)" else "المستخدم ($targetUserId)",
-                driverAvatar = "",
+                driverName = if (!isUserAdmin) "إدارة التطبيق (الدعم الفني)" else (directUser?.name ?: "المستخدم ($targetUserId)"),
+                driverAvatar = directAvatar,
                 startCity = if (!isUserAdmin) "الدعم الفني المباشر" else "محادثة مباشرة",
                 endCity = if (!isUserAdmin) "إدارة التطبيق" else "العميل",
                 departureDate = "فوري",
@@ -319,16 +346,16 @@ fun MessagesScreen(
                 carModel = "دعم وإشراف",
                 carColor = "أزرق",
                 carPlate = "ADMIN",
-                driverRating = 5.0f,
-                driverTripCount = 100,
+                driverRating = directUser?.rating ?: 5.0f,
+                driverTripCount = directUser?.rideCount ?: 100,
                 driverVerified = true
             )
 
             list.add(
                 ConversationItem(
                     ride = syntheticRide,
-                    contactName = if (!isUserAdmin) "إدارة التطبيق (الدعم الفني) 🛡️" else "مستخدم ($targetUserId)",
-                    contactAvatar = "",
+                    contactName = directName,
+                    contactAvatar = directAvatar,
                     contactRole = if (!isUserAdmin) "فريق الإشراف والدعم الفني" else "مستخدم التطبيق",
                     contactRating = 5.0f,
                     lastMessage = lastSnippet,
@@ -336,14 +363,15 @@ fun MessagesScreen(
                     lastTime = lastMsgTime,
                     unreadCount = unread,
                     isAdminSupport = !isUserAdmin && isDirectChat,
-                    isVerified = true
+                    isVerified = true,
+                    contactPhone = directPhone
                 )
             )
         }
 
         // 3. For regular users: ensure an Admin Support chat entry ALWAYS exists so they can message the admin at any time
         val hasAdminSupport = list.any { it.isAdminSupport || it.ride.id == "chat_user_$currentUserId" }
-        if (!isUserAdmin && !hasAdminSupport && currentUserId.isNotBlank()) {
+        if (!isUserAdmin && !hasAdminSupport && currentUserId.isNotBlank() && "chat_user_$currentUserId" !in effectiveDeleted) {
             val adminSupportRide = RideEntity(
                 id = "chat_user_$currentUserId",
                 driverId = "admin",
@@ -377,7 +405,8 @@ fun MessagesScreen(
                     lastTime = "متاح الآن",
                     unreadCount = 0,
                     isAdminSupport = true,
-                    isVerified = true
+                    isVerified = true,
+                    contactPhone = "+963988123456"
                 )
             )
         }
@@ -849,6 +878,31 @@ fun MessagesScreen(
                                             }
                                         }
 
+                                        // WhatsApp button on conversation item
+                                        val itemPhone = item.contactPhone ?: if (item.isAdminSupport) "+963988123456" else null
+                                        if (!itemPhone.isNullOrBlank()) {
+                                            IconButton(
+                                                onClick = {
+                                                    val msg = if (item.isAdminSupport) {
+                                                        "مرحباً إدارة تطبيق وصلني، أود الاستفسار بخصوص الدعم الفني"
+                                                    } else {
+                                                        "مرحباً ${item.contactName}، أنا أتواصل معك عبر تطبيق وصلني بخصوص رحلة (${item.ride.startCity} إلى ${item.ride.endCity})"
+                                                    }
+                                                    launchWhatsApp(context, itemPhone, msg)
+                                                },
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .testTag("conv_item_whatsapp_${item.ride.id}")
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_whatsapp),
+                                                    contentDescription = "تواصل عبر واتساب",
+                                                    tint = Color(0xFF25D366),
+                                                    modifier = Modifier.size(17.dp)
+                                                )
+                                            }
+                                        }
+
                                         IconButton(
                                             onClick = { conversationToDelete = item.ride },
                                             modifier = Modifier
@@ -894,6 +948,7 @@ fun MessagesScreen(
                         Button(
                             onClick = {
                                 conversationToDelete?.let { r ->
+                                    localDeletedIds = localDeletedIds + r.id
                                     onDeleteConversation(r.id)
                                     Toast.makeText(context, "تم حذف المحادثة بنجاح", Toast.LENGTH_SHORT).show()
                                 }
@@ -999,12 +1054,20 @@ fun MessagesScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
                         }
 
+                        val effectiveHeaderAvatar = if (isDirectChat && !isUserAdmin) "" else (otherPartyUser?.avatarUrl?.ifBlank { null } ?: ride.driverAvatar)
+                        val effectiveHeaderName = when {
+                            isDirectChat && !isUserAdmin -> "إدارة التطبيق (الدعم الفني) 🛡️"
+                            isDirectChat && isUserAdmin -> (otherPartyUser?.name?.ifBlank { null } ?: ride.driverName)
+                            currentUserId == ride.driverId -> (otherPartyUser?.name?.ifBlank { null } ?: "ركاب الرحلة (${ride.startCity})")
+                            else -> (otherPartyUser?.name?.ifBlank { null } ?: ride.driverName)
+                        }
+
                         // Avatar
                         Box {
-                            if (ride.driverAvatar.isNotBlank()) {
+                            if (effectiveHeaderAvatar.isNotBlank()) {
                                 AsyncImage(
-                                    model = ride.driverAvatar,
-                                    contentDescription = ride.driverName,
+                                    model = effectiveHeaderAvatar,
+                                    contentDescription = effectiveHeaderName,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
                                         .size(44.dp)
@@ -1031,13 +1094,6 @@ fun MessagesScreen(
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
-                            val isDirectChat = ride.id.startsWith("chat_user_")
-                            val headerTitle = when {
-                                isDirectChat && !isUserAdmin -> "إدارة التطبيق (الدعم الفني) 🛡️"
-                                isDirectChat && isUserAdmin -> ride.driverName
-                                currentUserId == ride.driverId -> "ركاب الرحلة (${ride.startCity})"
-                                else -> ride.driverName
-                            }
                             val headerSubtitle = when {
                                 isDirectChat && !isUserAdmin -> "فريق الإشراف والدعم الفني المباشر"
                                 isDirectChat && isUserAdmin -> "محادثة خاصة ومباشرة مع المستخدم"
@@ -1049,7 +1105,7 @@ fun MessagesScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = headerTitle,
+                                    text = effectiveHeaderName,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     maxLines = 1
@@ -1074,20 +1130,26 @@ fun MessagesScreen(
                     // Action buttons: WhatsApp, Direct Call, Rate, and Delete Conversation
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        IconButton(
-                            onClick = {
-                                launchWhatsApp(context, otherPartyPhone, defaultWhatsAppMsg)
-                            },
-                            modifier = Modifier.testTag("whatsapp_chat_button")
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF25D366).copy(alpha = 0.15f),
+                            modifier = Modifier.size(38.dp)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_whatsapp),
-                                contentDescription = "التواصل عبر واتساب",
-                                tint = Color(0xFF25D366),
-                                modifier = Modifier.size(24.dp)
-                            )
+                            IconButton(
+                                onClick = {
+                                    launchWhatsApp(context, otherPartyPhone, defaultWhatsAppMsg)
+                                },
+                                modifier = Modifier.testTag("whatsapp_chat_button")
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_whatsapp),
+                                    contentDescription = "التواصل عبر واتساب",
+                                    tint = Color(0xFF25D366),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
 
                         IconButton(
@@ -1974,6 +2036,7 @@ fun MessagesScreen(
                         Button(
                             onClick = {
                                 conversationToDelete?.let { r ->
+                                    localDeletedIds = localDeletedIds + r.id
                                     onDeleteConversation(r.id)
                                     onBackToList()
                                     Toast.makeText(context, "تم حذف المحادثة", Toast.LENGTH_SHORT).show()

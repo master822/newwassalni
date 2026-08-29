@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.AppLanguage
 import com.example.data.model.RideEntity
+import com.example.data.model.UserEntity
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.AppStrings
 import com.example.ui.theme.TrueBlue
@@ -44,6 +45,7 @@ import com.example.ui.theme.TrueBlueLight
 fun RideDetailScreen(
     ride: RideEntity,
     language: AppLanguage,
+    allUsers: List<UserEntity> = emptyList(),
     onBookRide: (RideEntity, Int) -> Unit,
     onOpenChat: (RideEntity) -> Unit,
     onRateDriver: ((driverId: String, rideId: String, stars: Float, comment: String, tags: List<String>) -> Unit)? = null,
@@ -51,6 +53,13 @@ fun RideDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val driverUser = remember(allUsers, ride.driverId) {
+        allUsers.find { it.id == ride.driverId }
+    }
+    val effectiveDriverAvatar = driverUser?.avatarUrl?.ifBlank { null } ?: ride.driverAvatar
+    val effectiveDriverName = driverUser?.name?.ifBlank { null } ?: ride.driverName
+    val effectiveDriverRating = if (driverUser != null && driverUser.rating > 0) driverUser.rating else ride.driverRating
+
     var seatsToBook by remember { mutableStateOf(1) }
     var bookingConfirmed by remember { mutableStateOf(false) }
     var showRatingDialog by remember { mutableStateOf(false) }
@@ -241,10 +250,10 @@ fun RideDetailScreen(
                 ) {
                     // Avatar with verified indicator
                     Box {
-                        if (!ride.driverAvatar.isNullOrBlank()) {
+                        if (!effectiveDriverAvatar.isNullOrBlank()) {
                             AsyncImage(
-                                model = ride.driverAvatar,
-                                contentDescription = ride.driverName,
+                                model = effectiveDriverAvatar,
+                                contentDescription = effectiveDriverName,
                                 modifier = Modifier
                                     .size(58.dp)
                                     .clip(CircleShape)
@@ -298,7 +307,7 @@ fun RideDetailScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = ride.driverName,
+                                text = effectiveDriverName,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 17.sp,
                                 maxLines = 1,
@@ -727,8 +736,8 @@ fun RideDetailScreen(
     // ==========================================
     if (showRatingDialog) {
         DriverRatingModalDialog(
-            driverName = ride.driverName,
-            driverAvatar = ride.driverAvatar,
+            driverName = effectiveDriverName,
+            driverAvatar = effectiveDriverAvatar,
             language = language,
             onDismiss = { showRatingDialog = false },
             onSubmit = { stars, comment, tags ->

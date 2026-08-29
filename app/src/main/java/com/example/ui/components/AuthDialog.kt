@@ -81,6 +81,7 @@ fun AuthDialog(
     onResetPasswordPhone: (suspend (phone: String, otp: String, newPass: String) -> Pair<Boolean, String>)? = null,
     onForgotPasswordEmail: (suspend (email: String) -> Pair<Boolean, String>)? = null,
     onResetPasswordEmail: (suspend (email: String, otp: String, newPass: String) -> Pair<Boolean, String>)? = null,
+    onOpenWallet: () -> Unit = {},
     onLogout: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
@@ -288,7 +289,105 @@ fun AuthDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Dedicated "My Wallet" Section
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, PrimaryGreen.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(GoldAccent.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.AccountBalanceWallet,
+                                            contentDescription = null,
+                                            tint = GoldAccent,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "قسم محفظتي والرصيد 💳",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "شحن النقاط، سجل العمليات، والمكافآت",
+                                            fontSize = 11.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    color = PrimaryGreen,
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = "$userPoints نقطة",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.sp,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "يمكنك إدارة نقاطك لشحن الرصيد وحجز الرحلات بدون نقد، أو كسب نقاط إضافية عبر رمز الدعوة الخاص بك.",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+
+                            Button(
+                                onClick = onOpenWallet,
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryGreen),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .testTag("auth_open_wallet_button")
+                            ) {
+                                Icon(
+                                    Icons.Filled.Payments,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "فتح قسم محفظتي وشحن الرصيد",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Button(
                         onClick = onLogout,

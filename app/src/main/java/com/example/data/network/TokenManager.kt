@@ -77,6 +77,12 @@ class TokenManager(context: Context) {
 
     fun isLoggedIn(): Boolean = !getAccessToken().isNullOrBlank()
 
+    fun saveFcmToken(token: String) {
+        prefs.edit().putString(KEY_FCM_TOKEN, token).apply()
+    }
+
+    fun getFcmToken(): String? = prefs.getString(KEY_FCM_TOKEN, null)
+
     fun clear() {
         prefs.edit().clear().apply()
         _isLoggedInFlow.value = false
@@ -93,6 +99,7 @@ class TokenManager(context: Context) {
         private const val KEY_USER_PHONE = "auth_user_phone"
         private const val KEY_USER_ROLE = "auth_user_role"
         private const val KEY_IS_IMPERSONATING = "auth_is_impersonating"
+        private const val KEY_FCM_TOKEN = "fcm_device_token"
 
         @Volatile
         private var instance: TokenManager? = null

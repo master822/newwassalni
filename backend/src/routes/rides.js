@@ -10,29 +10,36 @@ const { authenticateToken } = require('../middleware/auth');
 router.get('/', async (req, res) => {
   try {
     const { from, to, date, womenOnly, verifiedOnly } = req.query;
-    let query = "SELECT * FROM rides WHERE status = 'UPCOMING'";
+    let query = `
+      SELECT r.*,
+             COALESCE(NULLIF(u.avatar_url, ''), r.driver_avatar) AS driver_avatar,
+             COALESCE(NULLIF(u.name, ''), r.driver_name) AS driver_name
+      FROM rides r
+      LEFT JOIN users u ON r.driver_id = u.id
+      WHERE r.status = 'UPCOMING'
+    `;
     const params = [];
 
     if (from && from.trim()) {
       params.push(`%${from.trim()}%`);
-      query += ` AND start_city ILIKE $${params.length}`;
+      query += ` AND r.start_city ILIKE $${params.length}`;
     }
     if (to && to.trim()) {
       params.push(`%${to.trim()}%`);
-      query += ` AND end_city ILIKE $${params.length}`;
+      query += ` AND r.end_city ILIKE $${params.length}`;
     }
     if (date && date.trim()) {
       params.push(date.trim());
-      query += ` AND departure_date = $${params.length}`;
+      query += ` AND r.departure_date = $${params.length}`;
     }
     if (womenOnly === 'true' || womenOnly === true) {
-      query += ` AND is_women_only = TRUE`;
+      query += ` AND r.is_women_only = TRUE`;
     }
     if (verifiedOnly === 'true' || verifiedOnly === true) {
-      query += ` AND driver_verified = TRUE`;
+      query += ` AND r.driver_verified = TRUE`;
     }
 
-    query += ' ORDER BY departure_date ASC, departure_time ASC';
+    query += ' ORDER BY r.departure_date ASC, r.departure_time ASC';
     const result = await db.query(query, params);
     res.json({ success: true, data: result.rows });
   } catch (err) {
@@ -47,7 +54,15 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const rideRes = await db.query('SELECT * FROM rides WHERE id = $1', [id]);
+    const rideRes = await db.query(
+      `SELECT r.*,
+              COALESCE(NULLIF(u.avatar_url, ''), r.driver_avatar) AS driver_avatar,
+              COALESCE(NULLIF(u.name, ''), r.driver_name) AS driver_name
+       FROM rides r
+       LEFT JOIN users u ON r.driver_id = u.id
+       WHERE r.id = $1`,
+      [id]
+    );
     if (rideRes.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'الرحلة غير موجودة' });
     }

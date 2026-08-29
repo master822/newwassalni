@@ -10,13 +10,19 @@ const { authenticateToken } = require('../middleware/auth');
 router.get('/', async (req, res) => {
   try {
     const { status } = req.query;
-    let query = 'SELECT * FROM requested_trips';
+    let query = `
+      SELECT t.*,
+             COALESCE(NULLIF(u.avatar_url, ''), t.user_avatar) AS user_avatar,
+             COALESCE(NULLIF(u.name, ''), t.user_name) AS user_name
+      FROM requested_trips t
+      LEFT JOIN users u ON t.user_id = u.id
+    `;
     const params = [];
     if (status) {
-      query += ' WHERE status = $1';
+      query += ' WHERE t.status = $1';
       params.push(status);
     }
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY t.created_at DESC';
     const result = await db.query(query, params);
     res.json({ success: true, data: result.rows });
   } catch (err) {
