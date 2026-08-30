@@ -88,6 +88,16 @@ interface ApiService {
         @Body request: CancelRideRequest
     ): Response<ApiResponse<Unit>>
 
+    @DELETE("api/rides/bookings/{id}")
+    suspend fun deletePassengerBooking(
+        @Path("id") bookingId: String
+    ): Response<ApiResponse<Unit>>
+
+    @DELETE("api/rides/{rideId}/my-booking")
+    suspend fun deletePassengerBookingByRideId(
+        @Path("rideId") rideId: String
+    ): Response<ApiResponse<Unit>>
+
     // ==========================================
     // 4. Requested Trips Endpoints
     // ==========================================
@@ -117,6 +127,14 @@ interface ApiService {
 
     @POST("api/wallet/topup")
     suspend fun submitTopUp(@Body request: TopUpRequestPayload): Response<ApiResponse<TopUpRequestDto>>
+
+    @DELETE("api/wallet/transactions/{id}")
+    suspend fun deleteWalletTransaction(
+        @Path("id") id: String
+    ): Response<ApiResponse<Unit>>
+
+    @DELETE("api/wallet/transactions")
+    suspend fun clearAllWalletTransactions(): Response<ApiResponse<Unit>>
 
     // ==========================================
     // 6. Messages / Chat Endpoints

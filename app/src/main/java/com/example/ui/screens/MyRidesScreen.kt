@@ -31,10 +31,14 @@ fun MyRidesScreen(
     language: AppLanguage,
     onCancelRide: (String) -> Unit,
     onOpenChat: (RideEntity) -> Unit,
+    onDeleteBooking: (bookingId: String, rideId: String) -> Unit = { _, _ -> },
+    onDeleteRide: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableStateOf(0) } // 0 = Driver, 1 = Passenger
     var rideToCancel by remember { mutableStateOf<RideEntity?>(null) }
+    var bookingToDelete by remember { mutableStateOf<Pair<RideBookingEntity, RideEntity>?>(null) }
+    var driverRideToDelete by remember { mutableStateOf<RideEntity?>(null) }
 
     Column(
         modifier = modifier
@@ -85,7 +89,7 @@ fun MyRidesScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "لم تقوم بنشر أي رحلة كسائق بعد.",
+                        text = "لم تقم بنشر أي رحلة كسائق بعد.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -100,6 +104,7 @@ fun MyRidesScreen(
                             isDriverMode = true,
                             language = language,
                             onCancelClick = { rideToCancel = ride },
+                            onDeleteClick = { driverRideToDelete = ride },
                             onChatClick = { onOpenChat(ride) }
                         )
                     }
@@ -132,6 +137,7 @@ fun MyRidesScreen(
                                 isDriverMode = false,
                                 language = language,
                                 onCancelClick = { rideToCancel = ride },
+                                onDeleteClick = { bookingToDelete = Pair(booking, ride) },
                                 onChatClick = { onOpenChat(ride) }
                             )
                         }
@@ -145,7 +151,7 @@ fun MyRidesScreen(
     if (rideToCancel != null) {
         AlertDialog(
             onDismissRequest = { rideToCancel = null },
-            title = { Text(AppStrings.get("cancel_ride", language)) },
+            title = { Text(AppStrings.get("cancel_ride", language), fontWeight = FontWeight.Bold) },
             text = { Text(AppStrings.get("cancel_confirm", language)) },
             confirmButton = {
                 Button(
@@ -165,6 +171,64 @@ fun MyRidesScreen(
             }
         )
     }
+
+    // Delete Booking Dialog (Passenger)
+    if (bookingToDelete != null) {
+        val (booking, ride) = bookingToDelete!!
+        AlertDialog(
+            onDismissRequest = { bookingToDelete = null },
+            icon = {
+                Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            },
+            title = { Text("حذف الرحلة من السجل", fontWeight = FontWeight.Bold) },
+            text = { Text("هل أنت متأكد من رغبتك في حذف وحفظ أرشفة هذه الرحلة (${ride.startCity} ➔ ${ride.endCity}) من سجل رحلاتك؟") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteBooking(booking.id, ride.id)
+                        bookingToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("حذف من السجل", color = Color.White)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { bookingToDelete = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Delete Driver Ride Dialog
+    if (driverRideToDelete != null) {
+        val ride = driverRideToDelete!!
+        AlertDialog(
+            onDismissRequest = { driverRideToDelete = null },
+            icon = {
+                Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            },
+            title = { Text("حذف الرحلة من السجل", fontWeight = FontWeight.Bold) },
+            text = { Text("هل تريد حذف هذه الرحلة المنتهية (${ride.startCity} ➔ ${ride.endCity}) من سجلك؟") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteRide(ride.id)
+                        driverRideToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("حذف", color = Color.White)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { driverRideToDelete = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -173,6 +237,7 @@ private fun RideItemCard(
     isDriverMode: Boolean,
     language: AppLanguage,
     onCancelClick: () -> Unit,
+    onDeleteClick: () -> Unit = {},
     onChatClick: () -> Unit
 ) {
     val statusText = when (ride.status) {
@@ -254,10 +319,14 @@ private fun RideItemCard(
                 Text(
                     text = if (isDriverMode) "🚗 ${ride.carModel} • ${ride.availableSeats} مقاعد" else "👤 السائق: ${ride.driverName}",
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     IconButton(onClick = onChatClick) {
                         Icon(Icons.Filled.ChatBubble, contentDescription = "Chat", tint = TrueBlue)
                     }
@@ -268,6 +337,14 @@ private fun RideItemCard(
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
                             Text(AppStrings.get("cancel_ride", language), fontSize = 12.sp)
+                        }
+                    } else {
+                        IconButton(onClick = onDeleteClick) {
+                            Icon(
+                                Icons.Filled.DeleteOutline,
+                                contentDescription = "حذف من السجل",
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                            )
                         }
                     }
                 }

@@ -386,6 +386,10 @@ class MainActivity : ComponentActivity() {
                                             allRides = allRides,
                                             language = language,
                                             onCancelRide = { rideId -> viewModel.cancelRide(rideId) },
+                                            onDeleteRide = { rideId -> viewModel.cancelRide(rideId) },
+                                            onDeleteBooking = { bookingId, rideId ->
+                                                viewModel.deletePassengerBooking(bookingId, rideId)
+                                            },
                                             onOpenChat = { ride ->
                                                 viewModel.selectRide(ride)
                                                 viewModel.setScreen("messages")
@@ -467,6 +471,9 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onDeleteRequest = { reqId ->
                                                 viewModel.deleteRequestedTrip(reqId)
+                                            },
+                                            onOpenChat = { targetUid, name, avatar ->
+                                                viewModel.startDirectChat(targetUid, name, avatar)
                                             }
                                         )
 
@@ -481,6 +488,12 @@ class MainActivity : ComponentActivity() {
                                             onToggleTopUpModal = { viewModel.toggleTopUpModal(it) },
                                             onSubmitTopUpRequest = { pts, usd, path ->
                                                 viewModel.submitTopUpRequest(pts, usd, path)
+                                            },
+                                            onDeleteTransaction = { txId ->
+                                                viewModel.deleteWalletTransaction(txId)
+                                            },
+                                            onClearAllTransactions = {
+                                                viewModel.clearAllWalletTransactions()
                                             }
                                         )
 

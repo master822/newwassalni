@@ -48,20 +48,40 @@ router.get('/public', async (req, res) => {
  */
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
-    const { name, avatarUrl, phone } = req.body;
+    let { name, avatarUrl, phone } = req.body;
     const userId = req.user.userId;
+
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (name !== undefined && name !== null && name.trim() !== '') {
+      fields.push(`name = $${idx++}`);
+      values.push(name.trim());
+    }
+    if (avatarUrl !== undefined && avatarUrl !== null && avatarUrl.trim() !== '') {
+      fields.push(`avatar_url = $${idx++}`);
+      values.push(avatarUrl.trim());
+    }
+    if (phone !== undefined && phone !== null && phone.trim() !== '') {
+      fields.push(`phone = $${idx++}`);
+      values.push(phone.trim());
+    }
+    fields.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(userId);
+
+    if (fields.length === 1) { // only updated_at
+      return res.status(400).json({ success: false, error: 'لم يتم تقديم أي بيانات للتحديث' });
+    }
 
     const query = `
       UPDATE users
-      SET name = COALESCE($1, name),
-          avatar_url = COALESCE($2, avatar_url),
-          phone = COALESCE($3, phone),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $4
+      SET ${fields.slice(0, -1).join(', ')}, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $${idx}
       RETURNING id, name, email, phone, avatar_url, rating, ride_count, is_verified, wallet_points, role, user_role, referral_code
     `;
 
-    const result = await db.query(query, [name || null, avatarUrl || null, phone || null, userId]);
+    const result = await db.query(query, values);
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
     }
@@ -71,17 +91,20 @@ router.put('/profile', authenticateToken, async (req, res) => {
     // Propagate avatar and name changes to all public entities created by this user
     if (name || avatarUrl) {
       if (name && avatarUrl) {
-        await db.query('UPDATE rides SET driver_name = $1, driver_avatar = $2 WHERE driver_id = $3', [name, avatarUrl, userId]);
-        await db.query('UPDATE requested_trips SET user_name = $1, user_avatar = $2 WHERE user_id = $3', [name, avatarUrl, userId]);
-        await db.query('UPDATE chat_messages SET sender_name = $1, sender_avatar = $2 WHERE sender_id = $3', [name, avatarUrl, userId]);
+        await db.query('UPDATE rides SET driver_name = $1, driver_avatar = $2 WHERE driver_id = $3', [name.trim(), avatarUrl.trim(), userId]);
+        await db.query('UPDATE requested_trips SET user_name = $1, user_avatar = $2 WHERE user_id = $3', [name.trim(), avatarUrl.trim(), userId]);
+        await db.query('UPDATE ride_bookings SET passenger_name = $1, passenger_avatar = $2 WHERE passenger_id = $3', [name.trim(), avatarUrl.trim(), userId]);
+        await db.query('UPDATE chat_messages SET sender_name = $1, sender_avatar = $2 WHERE sender_id = $3', [name.trim(), avatarUrl.trim(), userId]);
       } else if (name) {
-        await db.query('UPDATE rides SET driver_name = $1 WHERE driver_id = $2', [name, userId]);
-        await db.query('UPDATE requested_trips SET user_name = $1 WHERE user_id = $2', [name, userId]);
-        await db.query('UPDATE chat_messages SET sender_name = $1 WHERE sender_id = $2', [name, userId]);
+        await db.query('UPDATE rides SET driver_name = $1 WHERE driver_id = $2', [name.trim(), userId]);
+        await db.query('UPDATE requested_trips SET user_name = $1 WHERE user_id = $2', [name.trim(), userId]);
+        await db.query('UPDATE ride_bookings SET passenger_name = $1 WHERE passenger_id = $2', [name.trim(), userId]);
+        await db.query('UPDATE chat_messages SET sender_name = $1 WHERE sender_id = $2', [name.trim(), userId]);
       } else if (avatarUrl) {
-        await db.query('UPDATE rides SET driver_avatar = $1 WHERE driver_id = $2', [avatarUrl, userId]);
-        await db.query('UPDATE requested_trips SET user_avatar = $1 WHERE user_id = $2', [avatarUrl, userId]);
-        await db.query('UPDATE chat_messages SET sender_avatar = $1 WHERE sender_id = $2', [avatarUrl, userId]);
+        await db.query('UPDATE rides SET driver_avatar = $1 WHERE driver_id = $2', [avatarUrl.trim(), userId]);
+        await db.query('UPDATE requested_trips SET user_avatar = $1 WHERE user_id = $2', [avatarUrl.trim(), userId]);
+        await db.query('UPDATE ride_bookings SET passenger_avatar = $1 WHERE passenger_id = $2', [avatarUrl.trim(), userId]);
+        await db.query('UPDATE chat_messages SET sender_avatar = $1 WHERE sender_id = $2', [avatarUrl.trim(), userId]);
       }
     }
 

@@ -54,12 +54,16 @@ fun WalletScreen(
     appDownloadUrl: String = "https://wasalni.app/download",
     onToggleTopUpModal: (Boolean) -> Unit,
     onSubmitTopUpRequest: (packagePoints: Int, packagePriceUsd: Double, receiptImagePath: String) -> Unit,
+    onDeleteTransaction: (String) -> Unit = {},
+    onClearAllTransactions: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var selectedPackage by remember { mutableStateOf<PointsPackage?>(null) }
     var receiptImagePath by remember { mutableStateOf<String?>(null) }
     var isSubmitted by remember { mutableStateOf(false) }
+    var transactionToDelete by remember { mutableStateOf<WalletTransactionEntity?>(null) }
+    var showClearAllDialog by remember { mutableStateOf(false) }
 
     val packages = listOf(
         PointsPackage(50, 0.50, "package_50", false),
@@ -467,24 +471,51 @@ fun WalletScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = AppStrings.get("transaction_history", language),
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(6.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "${transactions.size} عملية",
-                        fontSize = 11.sp,
+                        text = AppStrings.get("transaction_history", language),
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "${transactions.size} عملية",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                if (transactions.isNotEmpty()) {
+                    TextButton(
+                        onClick = { showClearAllDialog = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.testTag("clear_all_wallet_tx_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.DeleteSweep,
+                            contentDescription = "مسح السجل بالكامل",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "مسح السجل",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -536,7 +567,8 @@ fun WalletScreen(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -567,17 +599,34 @@ fun WalletScreen(
                             }
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isTopUp) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = "${if (isTopUp) "+" else "-"}${Math.abs(tx.points)} نقطة",
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp,
-                                color = if (isTopUp) Color(0xFF065F46) else Color(0xFF991B1B),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isTopUp) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                            ) {
+                                Text(
+                                    text = "${if (isTopUp) "+" else "-"}${Math.abs(tx.points)} نقطة",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                    color = if (isTopUp) Color(0xFF065F46) else Color(0xFF991B1B),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { transactionToDelete = tx },
+                                modifier = Modifier.size(32.dp).testTag("delete_tx_${tx.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.DeleteOutline,
+                                    contentDescription = "حذف من السجل",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -900,5 +949,94 @@ fun WalletScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
         }
+    }
+
+    if (showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.DeleteSweep,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    text = "مسح سجل المعاملات",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "هل أنت متأكد من رغبتك في مسح كامل سجل معاملات المحفظة؟ لن يتأثر رصيدك الحالي من النقاط إطلاقاً.",
+                    fontSize = 13.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearAllTransactions()
+                        showClearAllDialog = false
+                        Toast.makeText(context, "تم مسح سجل المعاملات بنجاح", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("مسح الكل", color = Color.White)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showClearAllDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    if (transactionToDelete != null) {
+        val tx = transactionToDelete!!
+        AlertDialog(
+            onDismissRequest = { transactionToDelete = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.DeleteOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    text = "حذف العملية من السجل",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "هل أنت متأكد من حذف هذه المعاملة (${tx.description}) من السجل؟ لن يتأثر رصيدك الحالي.",
+                    fontSize = 13.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteTransaction(tx.id)
+                        transactionToDelete = null
+                        Toast.makeText(context, "تم حذف العملية من السجل", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("حذف", color = Color.White)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { transactionToDelete = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 }

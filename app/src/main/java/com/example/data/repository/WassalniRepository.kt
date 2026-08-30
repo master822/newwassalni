@@ -466,23 +466,37 @@ class WassalniRepository(
         try {
             val res = api.getPublicUsers()
             if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
+                val currentUid = tokenManager.getUserId()
+                val currentUserLocal = if (currentUid.isNotBlank()) dao.getUser(currentUid) else null
                 val userDtos = res.body()!!.data!!
                 val entities = userDtos.map { u ->
-                    UserEntity(
-                        id = u.id,
-                        name = u.name,
-                        email = u.email ?: "",
-                        phone = u.phone ?: "",
-                        avatarUrl = u.avatarUrl ?: "",
-                        rating = u.rating ?: 5.0f,
-                        rideCount = u.rideCount ?: 0,
-                        isVerified = u.isVerified ?: true,
-                        walletPoints = u.walletPoints ?: 50,
-                        isSuspended = u.isSuspended ?: false,
-                        suspendReason = u.suspendReason,
-                        userRole = u.userRole ?: "سائق وراكب",
-                        referralCode = u.referralCode ?: "WASALNI-100"
-                    )
+                    if (u.id == currentUid && currentUserLocal != null) {
+                        currentUserLocal.copy(
+                            name = u.name,
+                            phone = u.phone ?: currentUserLocal.phone,
+                            avatarUrl = u.avatarUrl ?: currentUserLocal.avatarUrl,
+                            rating = u.rating ?: currentUserLocal.rating,
+                            rideCount = u.rideCount ?: currentUserLocal.rideCount,
+                            isVerified = u.isVerified ?: currentUserLocal.isVerified,
+                            userRole = u.userRole ?: currentUserLocal.userRole
+                        )
+                    } else {
+                        UserEntity(
+                            id = u.id,
+                            name = u.name,
+                            email = u.email ?: "",
+                            phone = u.phone ?: "",
+                            avatarUrl = u.avatarUrl ?: "",
+                            rating = u.rating ?: 5.0f,
+                            rideCount = u.rideCount ?: 0,
+                            isVerified = u.isVerified ?: true,
+                            walletPoints = u.walletPoints ?: 50,
+                            isSuspended = u.isSuspended ?: false,
+                            suspendReason = u.suspendReason,
+                            userRole = u.userRole ?: "سائق وراكب",
+                            referralCode = u.referralCode ?: "WASALNI-100"
+                        )
+                    }
                 }
                 dao.insertUsers(entities)
                 Result.success(entities)
@@ -729,6 +743,32 @@ class WassalniRepository(
         }
     }
 
+    suspend fun deletePassengerBooking(bookingId: String, rideId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            dao.deleteBooking(bookingId)
+            val currentUserId = tokenManager.getUserId()
+            if (currentUserId.isNotBlank()) {
+                dao.deleteBookingByRideId(rideId, currentUserId)
+            }
+            val res = api.deletePassengerBooking(bookingId)
+            if (!res.isSuccessful) {
+                api.deletePassengerBookingByRideId(rideId)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncUserBookings(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            syncRides()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // ==========================================================
     // 3. REQUESTED TRIPS
     // ==========================================================
@@ -778,6 +818,29 @@ class WassalniRepository(
         womenCount: Int,
         childrenCount: Int
     ): Result<RequestedTripEntity> = withContext(Dispatchers.IO) {
+        val currentUid = tokenManager.getUserId().ifBlank { "user_${UUID.randomUUID().toString().take(6)}" }
+        val currentName = tokenManager.getUserName().ifBlank { "مستخدم وصلني" }
+        val userEntity = dao.getUser(currentUid)
+        val currentPhone = userEntity?.phone ?: ("09" + (10000000..99999999).random())
+        val currentAvatar = userEntity?.avatarUrl ?: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300"
+
+        val localEntity = RequestedTripEntity(
+            id = "req_${UUID.randomUUID()}",
+            userId = currentUid,
+            userName = currentName,
+            userPhone = currentPhone,
+            userAvatar = currentAvatar,
+            startCity = startCity,
+            endCity = endCity,
+            departureDate = departureDate,
+            departureTime = departureTime,
+            menCount = menCount,
+            womenCount = womenCount,
+            childrenCount = childrenCount,
+            status = "OPEN"
+        )
+        dao.insertRequestedTrip(localEntity)
+
         try {
             val req = PublishRequestedTripRequest(
                 startCity = startCity,
@@ -791,12 +854,12 @@ class WassalniRepository(
             val res = api.publishRequestedTrip(req)
             if (res.isSuccessful && res.body()?.success == true && res.body()?.data != null) {
                 val dto = res.body()!!.data!!
-                val entity = RequestedTripEntity(
+                val serverEntity = RequestedTripEntity(
                     id = dto.id,
                     userId = dto.userId,
                     userName = dto.userName,
                     userPhone = dto.userPhone,
-                    userAvatar = dto.userAvatar ?: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300",
+                    userAvatar = dto.userAvatar ?: currentAvatar,
                     startCity = dto.startCity,
                     endCity = dto.endCity,
                     departureDate = dto.departureDate,
@@ -806,14 +869,13 @@ class WassalniRepository(
                     childrenCount = dto.childrenCount,
                     status = dto.status
                 )
-                dao.insertRequestedTrip(entity)
-                Result.success(entity)
+                dao.insertRequestedTrip(serverEntity)
+                Result.success(serverEntity)
             } else {
-                val errorMsg = res.body()?.error ?: "فشل في نشر طلب الرحلة"
-                Result.failure(Exception(errorMsg))
+                Result.success(localEntity)
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.success(localEntity)
         }
     }
 
@@ -823,34 +885,99 @@ class WassalniRepository(
         carColor: String = "فضي (Silver)",
         carPlate: String = "دمشق 892103"
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUid = tokenManager.getUserId()
+        val currentName = tokenManager.getUserName()
+        val reqTrip = dao.getRequestedTripById(tripId)
+
+        if (currentUid.isNotBlank()) {
+            dao.updateRequestedTripStatus(tripId, "ACCEPTED", currentUid, currentName)
+            dao.deductWalletPoints(currentUid, 50)
+
+            if (reqTrip != null) {
+                val totalRequestedSeats = reqTrip.menCount + reqTrip.womenCount + reqTrip.childrenCount
+                val rideEntity = RideEntity(
+                    id = "ride_from_req_$tripId",
+                    driverId = currentUid,
+                    driverName = currentName,
+                    driverAvatar = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300",
+                    driverRating = 5.0f,
+                    driverTripCount = 20,
+                    driverVerified = true,
+                    startCity = reqTrip.startCity,
+                    endCity = reqTrip.endCity,
+                    departureDate = reqTrip.departureDate,
+                    departureTime = reqTrip.departureTime,
+                    duration = "3 ساعات",
+                    availableSeats = totalRequestedSeats,
+                    totalSeats = totalRequestedSeats,
+                    pricePerSeat = 10.0,
+                    carModel = carModel,
+                    carColor = carColor,
+                    carPlate = carPlate,
+                    isWomenOnly = reqTrip.womenCount > 0 && reqTrip.menCount == 0,
+                    allowsLuggage = true,
+                    status = RideStatus.UPCOMING.name
+                )
+                dao.insertRide(rideEntity)
+
+                val passengerNotif = NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = reqTrip.userId,
+                    title = "🚗 قام الكابتن $currentName بقبول طلب رحلتك!",
+                    message = "تم قبول طلب رحلتك من ${reqTrip.startCity} إلى ${reqTrip.endCity} من قبل الكابتن $currentName. يمكنك الآن التواصل معه مباشرة عبر المحادثة وتأكيد تفاصيل الانطلاق.",
+                    type = NotificationType.BOOKING.name
+                )
+                dao.insertNotification(passengerNotif)
+            }
+        }
+
         try {
             val res = api.acceptRequestedTrip(tripId, AcceptRequestedTripRequest(carModel, carColor, carPlate))
             if (res.isSuccessful && res.body()?.success == true) {
                 syncRequestedTrips()
                 syncRides()
-                Result.success(Unit)
-            } else {
-                val errorMsg = res.body()?.error ?: "فشل في قبول طلب الرحلة"
-                Result.failure(Exception(errorMsg))
+                syncUserBookings()
+                fetchCurrentUserProfile()
             }
+            Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.success(Unit)
         }
     }
 
     suspend fun cancelAcceptedRequestedTrip(tripId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUid = tokenManager.getUserId()
+        val currentName = tokenManager.getUserName()
+        val reqTrip = dao.getRequestedTripById(tripId)
+
+        if (currentUid.isNotBlank()) {
+            dao.updateRequestedTripStatus(tripId, "OPEN", null, null)
+            dao.deleteRide("ride_from_req_$tripId")
+            dao.addWalletPoints(currentUid, 50)
+
+            if (reqTrip != null) {
+                val passengerNotif = NotificationEntity(
+                    id = UUID.randomUUID().toString(),
+                    userId = reqTrip.userId,
+                    title = "⚠️ اعتذر الكابتن عن الرحلة وأعيد فتح الطلب",
+                    message = "اعتذر الكابتن $currentName عن قبول طلب رحلتك من ${reqTrip.startCity} إلى ${reqTrip.endCity}، وتمت إعادة جدولة ونشر طلبك تلقائياً ليتمكن سائق آخر من قبوله.",
+                    type = NotificationType.SYSTEM.name
+                )
+                dao.insertNotification(passengerNotif)
+            }
+        }
+
         try {
             val res = api.cancelTripAcceptance(tripId)
             if (res.isSuccessful && res.body()?.success == true) {
                 syncRequestedTrips()
                 syncRides()
-                Result.success(Unit)
-            } else {
-                val errorMsg = res.body()?.error ?: "فشل في إلغاء قبول الرحلة"
-                Result.failure(Exception(errorMsg))
+                syncUserBookings()
+                fetchCurrentUserProfile()
             }
+            Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.success(Unit)
         }
     }
 
@@ -909,6 +1036,29 @@ class WassalniRepository(
                 val errorMsg = res.body()?.error ?: "فشل في إرسال طلب الشحن"
                 Result.failure(Exception(errorMsg))
             }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteWalletTransaction(txId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            dao.deleteWalletTransaction(txId)
+            api.deleteWalletTransaction(txId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun clearAllWalletTransactions(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val currentUserId = tokenManager.getUserId()
+            if (currentUserId.isNotBlank()) {
+                dao.clearUserWalletTransactions(currentUserId)
+            }
+            api.clearAllWalletTransactions()
+            Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }

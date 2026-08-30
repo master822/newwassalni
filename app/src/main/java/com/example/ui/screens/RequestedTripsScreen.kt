@@ -10,18 +10,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.model.AppLanguage
 import com.example.data.model.RequestedTripEntity
 import com.example.ui.components.GlassCard
@@ -39,10 +43,12 @@ fun RequestedTripsScreen(
     onAcceptRequest: (requestId: String) -> Unit,
     onDeleteRequest: (requestId: String) -> Unit,
     onCancelAcceptedRequest: ((requestId: String) -> Unit)? = null,
+    onOpenChat: ((userId: String, name: String, avatar: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var showCreateDialog by remember { mutableStateOf(false) }
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     // Dialog state
     var startCity by remember { mutableStateOf("دمشق") }
@@ -53,7 +59,22 @@ fun RequestedTripsScreen(
     var womenCount by remember { mutableIntStateOf(0) }
     var childrenCount by remember { mutableIntStateOf(0) }
 
-    val popularCities = listOf("دمشق", "حلب", "حمص", "اللاذقية", "طرطوس", "حماة", "بيروت", "إسطنبول", "عمان")
+    val openRequests = remember(requestedTrips, currentUserId) {
+        requestedTrips.filter { it.status == "OPEN" && it.userId != currentUserId }
+    }
+    val myRequests = remember(requestedTrips, currentUserId) {
+        requestedTrips.filter { it.userId == currentUserId }
+    }
+    val acceptedByMeRequests = remember(requestedTrips, currentUserId) {
+        requestedTrips.filter { it.acceptedByDriverId == currentUserId }
+    }
+
+    val currentList = when (selectedTabIndex) {
+        0 -> openRequests
+        1 -> myRequests
+        2 -> acceptedByMeRequests
+        else -> openRequests
+    }
 
     Scaffold(
         topBar = {
@@ -80,71 +101,156 @@ fun RequestedTripsScreen(
         },
         modifier = modifier
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item {
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 20.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "📌 ميزة تثبيت الطلب",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TrueBlue
-                        )
-                        Text(
-                            text = "إذا لم تجد رحلة تناسب مواعيدك، يمكنك تثبيت طلب رحلتك هنا مع تحديد عدد الرجال، النساء، والأطفال. وسيتمكن السائقون من الاطلاع على طلبك وقبوله فوراً! وإذا اعتذر السائق عن الرحلة، تعود الرحلة تلقائياً إلى القائمة ليقبلها سائق آخر.",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+            // Tabs
+            TabRow(
+                selectedTabIndex = selectedTabIndex,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = TrueBlue,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                        color = TrueBlue
+                    )
                 }
+            ) {
+                Tab(
+                    selected = selectedTabIndex == 0,
+                    onClick = { selectedTabIndex = 0 },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("الطلبات المتاحة", fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Normal)
+                            if (openRequests.isNotEmpty()) {
+                                Badge(containerColor = TrueBlue, contentColor = Color.White) {
+                                    Text("${openRequests.size}")
+                                }
+                            }
+                        }
+                    }
+                )
+                Tab(
+                    selected = selectedTabIndex == 1,
+                    onClick = { selectedTabIndex = 1 },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("طلباتي المثبتة", fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Normal)
+                            if (myRequests.isNotEmpty()) {
+                                Badge(containerColor = MaterialTheme.colorScheme.secondary, contentColor = Color.White) {
+                                    Text("${myRequests.size}")
+                                }
+                            }
+                        }
+                    }
+                )
+                Tab(
+                    selected = selectedTabIndex == 2,
+                    onClick = { selectedTabIndex = 2 },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("قبلتها كسائق", fontWeight = if (selectedTabIndex == 2) FontWeight.Bold else FontWeight.Normal)
+                            if (acceptedByMeRequests.isNotEmpty()) {
+                                Badge(containerColor = Color(0xFF2E7D32), contentColor = Color.White) {
+                                    Text("${acceptedByMeRequests.size}")
+                                }
+                            }
+                        }
+                    }
+                )
             }
 
-            if (requestedTrips.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "لا توجد طلبات رحلات مثبتة حالياً.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(top = 12.dp, bottom = 90.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (selectedTabIndex == 0) {
+                    item {
+                        GlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            cornerRadius = 16.dp
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "📌 ميزة تثبيت الطلب للركاب والسائقين",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TrueBlue
+                                )
+                                Text(
+                                    text = "هذه القائمة تضم ركاباً يبحثون عن وسيلة نقل. كسائق، يمكنك قبول أي طلب لنقله وإضافته إلى رحلاتك مع خصم 50 نقطة كابتن. وإذا اعتذرت يتم إعادة فتح الطلب وإرجاع النقاط لمحفظتك.",
+                                    fontSize = 12.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 17.sp
+                                )
+                            }
+                        }
                     }
                 }
-            } else {
-                items(requestedTrips, key = { "${it.id}_${it.createdAt}" }) { req ->
-                    RequestedTripCard(
-                        req = req,
-                        isOwner = req.userId == currentUserId,
-                        isAcceptedByMe = req.acceptedByDriverId == currentUserId,
-                        onAccept = {
-                            onAcceptRequest(req.id)
-                            Toast.makeText(context, "تم قبول الطلب بنجاح! ستظهر الرحلة في رحلاتك", Toast.LENGTH_SHORT).show()
-                        },
-                        onCancelAccept = {
-                            onCancelAcceptedRequest?.invoke(req.id)
-                            Toast.makeText(context, "تم إلغاء قبول الطلب وعادت الرحلة لتظهر في قائمة الرحلات المطلوبة", Toast.LENGTH_SHORT).show()
-                        },
-                        onDelete = {
-                            onDeleteRequest(req.id)
-                            Toast.makeText(context, "تم إلغاء وحذف طلب الرحلة", Toast.LENGTH_SHORT).show()
+
+                if (currentList.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 50.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Filled.DirectionsCar, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+                                Text(
+                                    text = when (selectedTabIndex) {
+                                        0 -> "لا توجد طلبات رحلات مفتوحة حالياً."
+                                        1 -> "لم تقم بتثبيت أي طلب رحلة بعد."
+                                        else -> "لم تقبل أي طلب رحلة حتى الآن."
+                                    },
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 14.sp
+                                )
+                            }
                         }
-                    )
+                    }
+                } else {
+                    items(currentList, key = { "${it.id}_${it.status}_${it.acceptedByDriverId}" }) { req ->
+                        RequestedTripCard(
+                            req = req,
+                            isOwner = req.userId == currentUserId,
+                            isAcceptedByMe = req.acceptedByDriverId == currentUserId,
+                            onAccept = {
+                                onAcceptRequest(req.id)
+                                Toast.makeText(context, "تم قبول الطلب بنجاح! انتقل إلى تبويب 'قبلتها كسائق' أو 'رحلاتي' للتواصل مع الراكب.", Toast.LENGTH_LONG).show()
+                            },
+                            onCancelAccept = {
+                                onCancelAcceptedRequest?.invoke(req.id)
+                                Toast.makeText(context, "تم إلغاء قبول الطلب وإعادة فتحه في القائمة واسترجاع 50 نقطة", Toast.LENGTH_SHORT).show()
+                            },
+                            onDelete = {
+                                onDeleteRequest(req.id)
+                                Toast.makeText(context, "تم حذف وإلغاء طلب الرحلة بنجاح", Toast.LENGTH_SHORT).show()
+                            },
+                            onChatWithOther = {
+                                if (req.userId == currentUserId && !req.acceptedByDriverId.isNullOrBlank()) {
+                                    // Owner chatting with driver
+                                    onOpenChat?.invoke(req.acceptedByDriverId!!, req.acceptedByDriverName ?: "الكابتن", "")
+                                } else if (req.acceptedByDriverId == currentUserId) {
+                                    // Driver chatting with passenger
+                                    onOpenChat?.invoke(req.userId, req.userName, req.userAvatar)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -164,19 +270,17 @@ fun RequestedTripsScreen(
                 ) {
                     Text("أدخل تفاصيل رحلتك المطلوبة ليراها السائقون:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                    // From dropdown
                     OutlinedTextField(
                         value = startCity,
                         onValueChange = { startCity = it },
-                        label = { Text("نقطة الانطلاق") },
+                        label = { Text("نقطة الانطلاق (مثل: دمشق)") },
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // To dropdown
                     OutlinedTextField(
                         value = endCity,
                         onValueChange = { endCity = it },
-                        label = { Text("الوجهة") },
+                        label = { Text("الوجهة (مثل: حلب)") },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -202,13 +306,8 @@ fun RequestedTripsScreen(
 
                     Text("تفاصيل الركاب والمشتركين:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
-                    // Men counter
                     CounterRow(label = "👨 عدد الرجال", count = menCount, onCountChange = { menCount = it })
-
-                    // Women counter
                     CounterRow(label = "👩 عدد النساء", count = womenCount, onCountChange = { womenCount = it })
-
-                    // Children counter
                     CounterRow(label = "👶 عدد الأطفال", count = childrenCount, onCountChange = { childrenCount = it })
                 }
             },
@@ -220,6 +319,7 @@ fun RequestedTripsScreen(
                         } else {
                             onPublishRequest(startCity, endCity, departureDate, departureTime, menCount, womenCount, childrenCount)
                             showCreateDialog = false
+                            selectedTabIndex = 1 // Switch to "My Requests"
                             Toast.makeText(context, "تم نشر وتثبيت طلبك بنجاح في القائمة!", Toast.LENGTH_SHORT).show()
                         }
                     },
@@ -277,7 +377,8 @@ fun RequestedTripCard(
     isAcceptedByMe: Boolean = false,
     onAccept: () -> Unit,
     onCancelAccept: (() -> Unit)? = null,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onChatWithOther: (() -> Unit)? = null
 ) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
@@ -297,18 +398,29 @@ fun RequestedTripCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(TrueBlueLight.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = req.userName.take(1),
-                            fontWeight = FontWeight.Bold,
-                            color = TrueBlue
+                    if (req.userAvatar.isNotBlank()) {
+                        AsyncImage(
+                            model = req.userAvatar,
+                            contentDescription = "User Avatar",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(TrueBlueLight.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = req.userName.take(1),
+                                fontWeight = FontWeight.Bold,
+                                color = TrueBlue
+                            )
+                        }
                     }
                     Column {
                         Text(req.userName, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -388,7 +500,22 @@ fun RequestedTripCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (isOwner) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (req.status == "ACCEPTED" && !req.acceptedByDriverId.isNullOrBlank()) {
+                            Button(
+                                onClick = { onChatWithOther?.invoke() },
+                                colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("مراسلة الكابتن (${req.acceptedByDriverName ?: "السائق"})", fontSize = 12.sp)
+                            }
+                        }
+
                         OutlinedButton(
                             onClick = onDelete,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
@@ -396,7 +523,7 @@ fun RequestedTripCard(
                         ) {
                             Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("حذف/إلغاء")
+                            Text("حذف الطلب", fontSize = 12.sp)
                         }
                     }
                 } else if (req.status == "OPEN") {
@@ -407,17 +534,32 @@ fun RequestedTripCard(
                     ) {
                         Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("قبول الطلب (-50 نقطة كابتن)")
+                        Text("قبول الطلب (-50 نقطة كابتن)", fontSize = 12.sp)
                     }
                 } else if (isAcceptedByMe) {
-                    OutlinedButton(
-                        onClick = { onCancelAccept?.invoke() },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        shape = RoundedCornerShape(10.dp)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("إلغاء قبولي (+50 نقطة وإعادة الفتح)")
+                        Button(
+                            onClick = { onChatWithOther?.invoke() },
+                            colors = ButtonDefaults.buttonColors(containerColor = TrueBlue),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("مراسلة الراكب (${req.userName})", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = { onCancelAccept?.invoke() },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("إلغاء قبولي (+50 نقطة)", fontSize = 12.sp)
+                        }
                     }
                 }
             }

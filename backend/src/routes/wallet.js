@@ -86,4 +86,43 @@ router.post('/topup', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * 3. Delete a specific transaction from history
+ */
+router.delete('/transactions/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const checkRes = await db.query('SELECT user_id FROM wallet_transactions WHERE id = $1', [id]);
+    if (checkRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'العملية غير موجودة' });
+    }
+
+    if (checkRes.rows[0].user_id !== userId && req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, error: 'غير مصرح لك بحذف هذه المعاملة' });
+    }
+
+    await db.query('DELETE FROM wallet_transactions WHERE id = $1', [id]);
+    res.json({ success: true, message: 'تم حذف العملية من سجل المحفظة بنجاح' });
+  } catch (err) {
+    console.error('Error deleting wallet transaction:', err);
+    res.status(500).json({ success: false, error: 'فشل في حذف المعاملة' });
+  }
+});
+
+/**
+ * 4. Clear all transaction history for authenticated user
+ */
+router.delete('/transactions', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    await db.query('DELETE FROM wallet_transactions WHERE user_id = $1', [userId]);
+    res.json({ success: true, message: 'تم مسح كامل سجل معاملات المحفظة بنجاح' });
+  } catch (err) {
+    console.error('Error clearing wallet transactions:', err);
+    res.status(500).json({ success: false, error: 'فشل في مسح سجل المعاملات' });
+  }
+});
+
 module.exports = router;

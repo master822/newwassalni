@@ -70,6 +70,12 @@ interface AppDao {
     @Query("UPDATE ride_bookings SET status = :status WHERE id = :bookingId")
     suspend fun updateBookingStatus(bookingId: String, status: String)
 
+    @Query("DELETE FROM ride_bookings WHERE id = :bookingId")
+    suspend fun deleteBooking(bookingId: String)
+
+    @Query("DELETE FROM ride_bookings WHERE rideId = :rideId AND passengerId = :passengerId")
+    suspend fun deleteBookingByRideId(rideId: String, passengerId: String)
+
     @Query("SELECT * FROM wallet_transactions WHERE userId = :userId ORDER BY createdAt DESC")
     fun getWalletTransactions(userId: String): Flow<List<WalletTransactionEntity>>
 
@@ -174,6 +180,9 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRequestedTrips(trips: List<RequestedTripEntity>)
 
+    @Query("SELECT * FROM requested_trips WHERE id = :tripId LIMIT 1")
+    suspend fun getRequestedTripById(tripId: String): RequestedTripEntity?
+
     @Query("UPDATE requested_trips SET status = :status, acceptedByDriverId = :driverId, acceptedByDriverName = :driverName WHERE id = :requestId")
     suspend fun updateRequestedTripStatus(requestId: String, status: String, driverId: String?, driverName: String?)
 
@@ -188,6 +197,9 @@ interface AppDao {
 
     @Query("DELETE FROM wallet_transactions WHERE id = :txId")
     suspend fun deleteWalletTransaction(txId: String)
+
+    @Query("DELETE FROM wallet_transactions WHERE userId = :userId")
+    suspend fun clearUserWalletTransactions(userId: String)
 
 
     @Query("UPDATE users SET walletPoints = :points WHERE id = :userId")

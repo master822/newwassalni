@@ -78,6 +78,18 @@ router.post('/', authenticateToken, async (req, res) => {
       childrenCount,
     ];
     const result = await db.query(query, values);
+
+    // Send Notification to Passenger
+    await db.query(
+      `INSERT INTO notifications (id, user_id, title, message, type)
+       VALUES ($1, $2, '📌 تم تثبيت طلب رحلتك بنجاح', $3, 'SYSTEM')`,
+      [
+        uuidv4(),
+        req.user.userId,
+        `تم نشر وتثبيت طلب رحلتك من ${startCity} إلى ${endCity} بنجاح، وسيصلك إشعار فور قبول أي سائق للطلب.`,
+      ]
+    );
+
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     console.error('Error publishing requested trip:', err);
@@ -202,6 +214,22 @@ router.post('/:id/accept', authenticateToken, async (req, res) => {
       carPlate || 'دمشق 123456',
     ]);
 
+    // Insert or update booking record for the passenger so the ride appears in their passenger bookings & chats
+    const totalSeats = (trip.men_count || 0) + (trip.women_count || 0) + (trip.children_count || 0);
+    await client.query(
+      `INSERT INTO ride_bookings (id, ride_id, passenger_id, passenger_name, passenger_avatar, seats_booked, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'UPCOMING')
+       ON CONFLICT (id) DO UPDATE SET status = 'UPCOMING', seats_booked = EXCLUDED.seats_booked`,
+      [
+        `booking_req_${id}`,
+        rideId,
+        trip.user_id,
+        trip.user_name || 'راكب',
+        trip.user_avatar || '',
+        totalSeats > 0 ? totalSeats : 1,
+      ]
+    );
+
     // Send Notification to Passenger
     await client.query(
       `INSERT INTO notifications (id, user_id, title, message, type)
@@ -311,7 +339,8 @@ router.post('/:id/cancel-acceptance', authenticateToken, async (req, res) => {
       ['OPEN', id]
     );
 
-    // Delete or cancel the driver's ride
+    // Delete or cancel the driver's ride & booking
+    await client.query('DELETE FROM ride_bookings WHERE ride_id = $1', [`ride_from_req_${id}`]);
     await client.query('DELETE FROM rides WHERE id = $1', [`ride_from_req_${id}`]);
 
     // Send Notification to Passenger
@@ -359,6 +388,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 
     await db.query('DELETE FROM requested_trips WHERE id = $1', [id]);
+    await db.query('DELETE FROM ride_bookings WHERE ride_id = $1', [`ride_from_req_${id}`]);
     await db.query('DELETE FROM rides WHERE id = $1', [`ride_from_req_${id}`]);
     res.json({ success: true, message: 'تم حذف طلب الرحلة بنجاح' });
   } catch (err) {

@@ -887,6 +887,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deletePassengerBooking(bookingId: String, rideId: String) {
+        viewModelScope.launch {
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
+            dao.deleteBooking(bookingId)
+            if (currentUid.isNotBlank()) {
+                dao.deleteBookingByRideId(rideId, currentUid)
+            }
+            repository.deletePassengerBooking(bookingId, rideId)
+            repository.syncUserBookings()
+        }
+    }
+
     // ==========================================
     // Requested Trips Operations
     // ==========================================
@@ -901,7 +913,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         children: Int
     ) {
         viewModelScope.launch {
-            repository.publishRequestedTrip(
+            val res = repository.publishRequestedTrip(
                 startCity = startCity,
                 endCity = endCity,
                 departureDate = date,
@@ -910,6 +922,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 womenCount = women,
                 childrenCount = children
             )
+            repository.syncRequestedTrips()
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
+            val notif = NotificationEntity(
+                id = UUID.randomUUID().toString(),
+                userId = currentUid,
+                title = "📌 تم تثبيت طلب رحلتك بنجاح",
+                message = "تم نشر وتثبيت طلب رحلتك من $startCity إلى $endCity بنجاح، وسيتم إشعارك فور قبول أي كابتن للطلب.",
+                type = NotificationType.SYSTEM.name
+            )
+            insertAndNotify(notif)
         }
     }
 
@@ -942,6 +964,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun submitTopUpRequest(packagePoints: Int, packagePriceUsd: Double, receiptImagePath: String) {
         viewModelScope.launch {
             repository.submitTopUpRequest(packagePoints, packagePriceUsd, receiptImagePath)
+        }
+    }
+
+    fun deleteWalletTransaction(txId: String) {
+        viewModelScope.launch {
+            repository.deleteWalletTransaction(txId)
+        }
+    }
+
+    fun clearAllWalletTransactions() {
+        viewModelScope.launch {
+            repository.clearAllWalletTransactions()
         }
     }
 
@@ -1058,6 +1092,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 repository.markAllChatMessagesAsRead()
             } catch (_: Exception) {}
         }
+    }
+
+    fun startDirectChat(targetUserId: String, targetUserName: String, targetUserAvatar: String = "") {
+        val targetUser = UserEntity(
+            id = targetUserId,
+            name = targetUserName,
+            email = "",
+            phone = "",
+            avatarUrl = targetUserAvatar,
+            rating = 5.0f,
+            rideCount = 10,
+            walletPoints = 0,
+            referralCode = ""
+        )
+        startDirectChatWithUser(targetUser)
     }
 
     fun startDirectChatWithUser(user: UserEntity) {

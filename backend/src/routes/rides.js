@@ -363,4 +363,46 @@ router.post('/:id/cancel', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * 6. Delete/Archive old, completed, or cancelled booking by passenger
+ */
+router.delete('/bookings/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const checkRes = await db.query('SELECT * FROM ride_bookings WHERE id = $1', [id]);
+    if (checkRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'سجل الحجز غير موجود' });
+    }
+
+    const booking = checkRes.rows[0];
+    if (booking.passenger_id !== userId && req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, error: 'غير مصرح لك بحذف هذا الحجز' });
+    }
+
+    await db.query('DELETE FROM ride_bookings WHERE id = $1', [id]);
+    res.json({ success: true, message: 'تم حذف الرحلة من السجل بنجاح' });
+  } catch (err) {
+    console.error('Error deleting booking:', err);
+    res.status(500).json({ success: false, error: 'فشل في حذف سجل الرحلة' });
+  }
+});
+
+/**
+ * 7. Delete booking by rideId for the authenticated passenger
+ */
+router.delete('/:rideId/my-booking', authenticateToken, async (req, res) => {
+  try {
+    const { rideId } = req.params;
+    const userId = req.user.userId;
+
+    await db.query('DELETE FROM ride_bookings WHERE ride_id = $1 AND passenger_id = $2', [rideId, userId]);
+    res.json({ success: true, message: 'تم حذف الرحلة من السجل بنجاح' });
+  } catch (err) {
+    console.error('Error deleting passenger booking by rideId:', err);
+    res.status(500).json({ success: false, error: 'فشل في حذف سجل الرحلة' });
+  }
+});
+
 module.exports = router;

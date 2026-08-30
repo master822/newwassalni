@@ -19,11 +19,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.background
 import com.example.data.model.AppLanguage
 import com.example.data.model.RideEntity
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.AppStrings
 import com.example.ui.theme.TrueBlue
+import com.example.ui.theme.TrueBlueLight
 
 @Composable
 fun SearchResultsScreen(
@@ -172,12 +176,31 @@ fun SearchResultsScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Filled.PersonPin,
-                                        contentDescription = null,
-                                        tint = TrueBlue,
-                                        modifier = Modifier.size(40.dp)
-                                    )
+                                    if (ride.driverAvatar.isNotBlank()) {
+                                        AsyncImage(
+                                            model = ride.driverAvatar,
+                                            contentDescription = "Driver Avatar",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(CircleShape)
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(CircleShape)
+                                                .background(TrueBlueLight.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = ride.driverName.take(1),
+                                                fontWeight = FontWeight.Bold,
+                                                color = TrueBlue,
+                                                fontSize = 16.sp
+                                            )
+                                        }
+                                    }
                                     Column {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text(
