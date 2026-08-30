@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -11,32 +16,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
-      - name: Make Gradle executable
+      - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Build APK
-        run: ./gradlew clean assembleDebug --no-daemon --no-configuration-cache --stacktrace
-
-      - name: Rename APK
+      - name: Ensure signing keystore available
         run: |
-          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp app/build/outputs/apk/debug/app-debug.apk wassalni.apk
-          else
-            echo "Searching for generated debug APK..."
-            find app/build/outputs/apk/ -name "*.apk" -exec cp {} wassalni.apk \;
+          if [ ! -f "debug.keystore" ] && [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Decoded debug.keystore for build signing"
           fi
+
+      - name: Build Release APK
+        run: ./gradlew clean assembleRelease --no-daemon --stacktrace
+
+      - name: Verify wassalni.apk was generated
+        run: |
+          echo "Verifying wassalni.apk existence..."
+          if [ -f "wassalni.apk" ]; then
+            APK_PATH="wassalni.apk"
+          elif [ -f "app/build/outputs/apk/wassalni.apk" ]; then
+            APK_PATH="app/build/outputs/apk/wassalni.apk"
+            cp "$APK_PATH" wassalni.apk
+          elif [ -f "app/build/outputs/apk/release/wassalni.apk" ]; then
+            APK_PATH="app/build/outputs/apk/release/wassalni.apk"
+            cp "$APK_PATH" wassalni.apk
+          elif [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            APK_PATH="app/build/outputs/apk/release/app-release.apk"
+            cp "$APK_PATH" wassalni.apk
+            cp "$APK_PATH" app/build/outputs/apk/wassalni.apk
+          else
+            echo "ERROR: wassalni.apk was NOT created!"
+            ls -la app/build/outputs/apk/ || true
+            exit 1
+          fi
+
+          echo "SUCCESS: wassalni.apk verified successfully at $APK_PATH"
+          ls -lh wassalni.apk
+          sha256sum wassalni.apk
 
       - name: Upload wassalni.apk
         uses: actions/upload-artifact@v4
         with:
-          name: wassalni-apk
+          name: wassalni.apk
           path: wassalni.apk
+          if-no-files-found: error
+
