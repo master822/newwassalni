@@ -201,6 +201,9 @@ interface AppDao {
     @Query("DELETE FROM wallet_transactions WHERE userId = :userId")
     suspend fun clearUserWalletTransactions(userId: String)
 
+    @Query("DELETE FROM wallet_transactions")
+    suspend fun clearAllWalletTransactions()
+
 
     @Query("UPDATE users SET walletPoints = :points WHERE id = :userId")
     suspend fun updateUserWalletPoints(

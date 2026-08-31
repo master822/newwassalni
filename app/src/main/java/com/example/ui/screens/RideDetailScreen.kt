@@ -64,6 +64,15 @@ fun RideDetailScreen(
     var bookingConfirmed by remember { mutableStateOf(false) }
     var showRatingDialog by remember { mutableStateOf(false) }
     var ratingSubmittedMessage by remember { mutableStateOf<String?>(null) }
+    var reviewsList by remember {
+        mutableStateOf(
+            listOf(
+                Triple("أحمد القاسم", "سائق خلوق جداً، القيادة هادئة ومريحة، والتزام دقيق جداً بموعد الانطلاق والوصول.", "منذ يومين • مسافر موثق"),
+                Triple("سارة المصري", "تجربة ممتازة وسيارة مكيفة ونظيفة جداً. أنصح بالسفر معه بشدة!", "منذ أسبوع • مسافرة موثقة"),
+                Triple("محمد النجار", "رحلة ممتعة وآمنة، السائق متعاون ومحترم لأبعد الحدود وسعر الرحلة مناسب.", "منذ أسبوعين • مسافر موثق")
+            )
+        )
+    }
 
     Column(
         modifier = modifier
@@ -666,25 +675,7 @@ fun RideDetailScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                 // Passenger Review Cards List
-                val reviews = listOf(
-                    Triple(
-                        "أحمد القاسم",
-                        "سائق خلوق جداً، القيادة هادئة ومريحة، والتزام دقيق جداً بموعد الانطلاق والوصول.",
-                        "منذ يومين • مسافر موثق"
-                    ),
-                    Triple(
-                        "سارة المصري",
-                        "تجربة ممتازة وسيارة مكيفة ونظيفة جداً. أنصح بالسفر معه بشدة!",
-                        "منذ أسبوع • مسافرة موثقة"
-                    ),
-                    Triple(
-                        "محمد النجار",
-                        "رحلة ممتعة وآمنة، السائق متعاون ومحترم لأبعد الحدود وسعر الرحلة مناسب.",
-                        "منذ أسبوعين • مسافر موثق"
-                    )
-                )
-
-                reviews.forEach { (name, comment, meta) ->
+                reviewsList.forEach { (name, comment, meta) ->
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
@@ -948,6 +939,9 @@ fun RideDetailScreen(
             onDismiss = { showRatingDialog = false },
             onSubmit = { stars, comment, tags ->
                 onRateDriver?.invoke(ride.driverId, ride.id, stars, comment, tags)
+                val displayComment = if (comment.isNotBlank()) comment else "سائق ممتاز وتجربة سفر رائعة! تقييم: $stars نجوم"
+                val newReview = Triple("أنت (تقييمك الأخير)", displayComment, "الآن • مسافر موثق")
+                reviewsList = listOf(newReview) + reviewsList
                 showRatingDialog = false
                 ratingSubmittedMessage = AppStrings.get("submit_rating_success", language)
                 Toast.makeText(context, AppStrings.get("submit_rating_success", language), Toast.LENGTH_LONG).show()

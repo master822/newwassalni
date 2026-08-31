@@ -247,10 +247,8 @@ fun SettingsDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (phone == currentUser?.phone) {
-                        onUpdateProfile(name, avatarUrl, phone)
-                        Toast.makeText(context, "تم حفظ التعديلات بنجاح!", Toast.LENGTH_SHORT).show()
-                    }
+                    onUpdateProfile(name, avatarUrl, phone)
+                    Toast.makeText(context, "تم حفظ وتحديث بيانات الملف الشخصي بنجاح!", Toast.LENGTH_SHORT).show()
                     onDismiss()
                 },
                 shape = RoundedCornerShape(12.dp)

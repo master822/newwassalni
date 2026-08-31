@@ -129,18 +129,38 @@ fun MyRidesScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(bottom = 90.dp)
                 ) {
-                    items(passengerBookings) { booking ->
-                        val ride = allRides.find { it.id == booking.rideId }
-                        if (ride != null) {
-                            RideItemCard(
-                                ride = ride,
-                                isDriverMode = false,
-                                language = language,
-                                onCancelClick = { rideToCancel = ride },
-                                onDeleteClick = { bookingToDelete = Pair(booking, ride) },
-                                onChatClick = { onOpenChat(ride) }
-                            )
-                        }
+                    items(passengerBookings, key = { it.id }) { booking ->
+                        val ride = allRides.find { it.id == booking.rideId } ?: RideEntity(
+                            id = booking.rideId,
+                            driverId = "archived",
+                            driverName = "كابتن وسلني",
+                            driverAvatar = "",
+                            driverRating = 5.0f,
+                            driverTripCount = 10,
+                            driverVerified = true,
+                            startCity = "رحلة سابقة",
+                            endCity = "منتهية",
+                            departureDate = "سجل محفوظ",
+                            departureTime = "",
+                            duration = "",
+                            availableSeats = booking.seatsBooked,
+                            totalSeats = booking.seatsBooked,
+                            pricePerSeat = 10.0,
+                            carModel = "مركبة",
+                            carColor = "",
+                            carPlate = "",
+                            isWomenOnly = false,
+                            allowsLuggage = true,
+                            status = booking.status.ifBlank { RideStatus.COMPLETED.name }
+                        )
+                        RideItemCard(
+                            ride = ride,
+                            isDriverMode = false,
+                            language = language,
+                            onCancelClick = { rideToCancel = ride },
+                            onDeleteClick = { bookingToDelete = Pair(booking, ride) },
+                            onChatClick = { onOpenChat(ride) }
+                        )
                     }
                 }
             }

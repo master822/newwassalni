@@ -528,12 +528,18 @@ class WassalniRepository(
                     userRole = user.userRole ?: "راكب وسائق",
                     referralCode = user.referralCode ?: "WASALNI-100"
                 )
+                tokenManager.saveUserName(user.name)
+                tokenManager.saveUserAvatar(userEntity.avatarUrl)
+                tokenManager.saveUserPhone(user.phone)
                 dao.insertUser(userEntity)
                 dao.updateDriverProfileInRides(user.id, user.name, userEntity.avatarUrl)
                 dao.updateUserProfileInRequestedTrips(user.id, user.name, userEntity.avatarUrl)
                 Result.success(user)
             } else {
-                val currentUid = tokenManager.getUserId() ?: ""
+                val currentUid = tokenManager.getUserId().ifBlank { "user_default" }
+                tokenManager.saveUserName(name)
+                tokenManager.saveUserAvatar(avatarUrl)
+                tokenManager.saveUserPhone(phone)
                 val localUser = dao.getUser(currentUid)
                 if (localUser != null) {
                     val updated = localUser.copy(name = name, avatarUrl = avatarUrl, phone = phone)
@@ -544,7 +550,10 @@ class WassalniRepository(
                 Result.success(UserDto(id = localUser?.id ?: currentUid, name = name, email = localUser?.email ?: "", phone = phone, avatarUrl = avatarUrl))
             }
         } catch (e: Exception) {
-            val currentUid = tokenManager.getUserId() ?: ""
+            val currentUid = tokenManager.getUserId().ifBlank { "user_default" }
+            tokenManager.saveUserName(name)
+            tokenManager.saveUserAvatar(avatarUrl)
+            tokenManager.saveUserPhone(phone)
             val localUser = dao.getUser(currentUid)
             if (localUser != null) {
                 val updated = localUser.copy(name = name, avatarUrl = avatarUrl, phone = phone)
@@ -881,54 +890,59 @@ class WassalniRepository(
 
     suspend fun acceptRequestedTrip(
         tripId: String,
+        driverId: String? = null,
+        driverName: String? = null,
+        driverAvatar: String? = null,
         carModel: String = "تويوتا كامري 2022",
         carColor: String = "فضي (Silver)",
         carPlate: String = "دمشق 892103"
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val currentUid = tokenManager.getUserId()
-        val currentName = tokenManager.getUserName()
+        val currentUid = driverId?.ifBlank { null } ?: tokenManager.getUserId().ifBlank { "user_default" }
+        val currentDriverName = driverName?.ifBlank { null } ?: tokenManager.getUserName().ifBlank { "كابتن وسلني" }
+        val currentDriverAvatar = if (!driverAvatar.isNullOrBlank()) driverAvatar else {
+            val saved = tokenManager.getUserAvatar()
+            if (saved.isNotBlank()) saved else "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300"
+        }
         val reqTrip = dao.getRequestedTripById(tripId)
 
-        if (currentUid.isNotBlank()) {
-            dao.updateRequestedTripStatus(tripId, "ACCEPTED", currentUid, currentName)
-            dao.deductWalletPoints(currentUid, 50)
+        dao.updateRequestedTripStatus(tripId, "ACCEPTED", currentUid, currentDriverName)
+        dao.deductWalletPoints(currentUid, 50)
 
-            if (reqTrip != null) {
-                val totalRequestedSeats = reqTrip.menCount + reqTrip.womenCount + reqTrip.childrenCount
-                val rideEntity = RideEntity(
-                    id = "ride_from_req_$tripId",
-                    driverId = currentUid,
-                    driverName = currentName,
-                    driverAvatar = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300",
-                    driverRating = 5.0f,
-                    driverTripCount = 20,
-                    driverVerified = true,
-                    startCity = reqTrip.startCity,
-                    endCity = reqTrip.endCity,
-                    departureDate = reqTrip.departureDate,
-                    departureTime = reqTrip.departureTime,
-                    duration = "3 ساعات",
-                    availableSeats = totalRequestedSeats,
-                    totalSeats = totalRequestedSeats,
-                    pricePerSeat = 10.0,
-                    carModel = carModel,
-                    carColor = carColor,
-                    carPlate = carPlate,
-                    isWomenOnly = reqTrip.womenCount > 0 && reqTrip.menCount == 0,
-                    allowsLuggage = true,
-                    status = RideStatus.UPCOMING.name
-                )
-                dao.insertRide(rideEntity)
+        if (reqTrip != null) {
+            val totalRequestedSeats = (reqTrip.menCount + reqTrip.womenCount + reqTrip.childrenCount).coerceAtLeast(1)
+            val rideEntity = RideEntity(
+                id = "ride_from_req_$tripId",
+                driverId = currentUid,
+                driverName = currentDriverName,
+                driverAvatar = currentDriverAvatar,
+                driverRating = 5.0f,
+                driverTripCount = 20,
+                driverVerified = true,
+                startCity = reqTrip.startCity,
+                endCity = reqTrip.endCity,
+                departureDate = reqTrip.departureDate,
+                departureTime = reqTrip.departureTime,
+                duration = "3 ساعات",
+                availableSeats = totalRequestedSeats,
+                totalSeats = totalRequestedSeats,
+                pricePerSeat = 10.0,
+                carModel = carModel,
+                carColor = carColor,
+                carPlate = carPlate,
+                isWomenOnly = reqTrip.womenCount > 0 && reqTrip.menCount == 0,
+                allowsLuggage = true,
+                status = RideStatus.UPCOMING.name
+            )
+            dao.insertRide(rideEntity)
 
-                val passengerNotif = NotificationEntity(
-                    id = UUID.randomUUID().toString(),
-                    userId = reqTrip.userId,
-                    title = "🚗 قام الكابتن $currentName بقبول طلب رحلتك!",
-                    message = "تم قبول طلب رحلتك من ${reqTrip.startCity} إلى ${reqTrip.endCity} من قبل الكابتن $currentName. يمكنك الآن التواصل معه مباشرة عبر المحادثة وتأكيد تفاصيل الانطلاق.",
-                    type = NotificationType.BOOKING.name
-                )
-                dao.insertNotification(passengerNotif)
-            }
+            val passengerNotif = NotificationEntity(
+                id = UUID.randomUUID().toString(),
+                userId = reqTrip.userId,
+                title = "🚗 قام الكابتن $currentDriverName بقبول طلب رحلتك!",
+                message = "تم قبول طلب رحلتك من ${reqTrip.startCity} إلى ${reqTrip.endCity} من قبل الكابتن $currentDriverName. يمكنك الآن التواصل معه مباشرة عبر المحادثة وتأكيد تفاصيل الانطلاق.",
+                type = NotificationType.BOOKING.name
+            )
+            dao.insertNotification(passengerNotif)
         }
 
         try {
@@ -945,26 +959,28 @@ class WassalniRepository(
         }
     }
 
-    suspend fun cancelAcceptedRequestedTrip(tripId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val currentUid = tokenManager.getUserId()
-        val currentName = tokenManager.getUserName()
+    suspend fun cancelAcceptedRequestedTrip(
+        tripId: String,
+        driverId: String? = null,
+        driverName: String? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUid = driverId?.ifBlank { null } ?: tokenManager.getUserId().ifBlank { "user_default" }
+        val currentDriverName = driverName?.ifBlank { null } ?: tokenManager.getUserName().ifBlank { "كابتن وسلني" }
         val reqTrip = dao.getRequestedTripById(tripId)
 
-        if (currentUid.isNotBlank()) {
-            dao.updateRequestedTripStatus(tripId, "OPEN", null, null)
-            dao.deleteRide("ride_from_req_$tripId")
-            dao.addWalletPoints(currentUid, 50)
+        dao.updateRequestedTripStatus(tripId, "OPEN", null, null)
+        dao.deleteRide("ride_from_req_$tripId")
+        dao.addWalletPoints(currentUid, 50)
 
-            if (reqTrip != null) {
-                val passengerNotif = NotificationEntity(
-                    id = UUID.randomUUID().toString(),
-                    userId = reqTrip.userId,
-                    title = "⚠️ اعتذر الكابتن عن الرحلة وأعيد فتح الطلب",
-                    message = "اعتذر الكابتن $currentName عن قبول طلب رحلتك من ${reqTrip.startCity} إلى ${reqTrip.endCity}، وتمت إعادة جدولة ونشر طلبك تلقائياً ليتمكن سائق آخر من قبوله.",
-                    type = NotificationType.SYSTEM.name
-                )
-                dao.insertNotification(passengerNotif)
-            }
+        if (reqTrip != null) {
+            val passengerNotif = NotificationEntity(
+                id = UUID.randomUUID().toString(),
+                userId = reqTrip.userId,
+                title = "⚠️ اعتذر الكابتن عن الرحلة وأعيد فتح الطلب",
+                message = "اعتذر الكابتن $currentDriverName عن قبول طلب رحلتك من ${reqTrip.startCity} إلى ${reqTrip.endCity}، وتمت إعادة جدولة ونشر طلبك تلقائياً ليتمكن سائق آخر من قبوله.",
+                type = NotificationType.SYSTEM.name
+            )
+            dao.insertNotification(passengerNotif)
         }
 
         try {
@@ -1056,11 +1072,14 @@ class WassalniRepository(
             val currentUserId = tokenManager.getUserId()
             if (currentUserId.isNotBlank()) {
                 dao.clearUserWalletTransactions(currentUserId)
+            } else {
+                dao.clearAllWalletTransactions()
             }
             api.clearAllWalletTransactions()
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            dao.clearAllWalletTransactions()
+            Result.success(Unit)
         }
     }
 

@@ -55,9 +55,23 @@ class TokenManager(context: Context) {
 
     fun getUserName(): String = prefs.getString(KEY_USER_NAME, "") ?: ""
 
+    fun saveUserName(name: String) {
+        prefs.edit().putString(KEY_USER_NAME, name).apply()
+    }
+
+    fun getUserAvatar(): String = prefs.getString(KEY_USER_AVATAR, "") ?: ""
+
+    fun saveUserAvatar(avatarUrl: String) {
+        prefs.edit().putString(KEY_USER_AVATAR, avatarUrl).apply()
+    }
+
     fun getUserEmail(): String = prefs.getString(KEY_USER_EMAIL, "") ?: ""
 
     fun getUserPhone(): String = prefs.getString(KEY_USER_PHONE, "") ?: ""
+
+    fun saveUserPhone(phone: String) {
+        prefs.edit().putString(KEY_USER_PHONE, phone).apply()
+    }
 
     fun getUserRole(): String = prefs.getString(KEY_USER_ROLE, "USER") ?: "USER"
 
@@ -95,6 +109,7 @@ class TokenManager(context: Context) {
         private const val KEY_REFRESH_TOKEN = "jwt_refresh_token"
         private const val KEY_USER_ID = "auth_user_id"
         private const val KEY_USER_NAME = "auth_user_name"
+        private const val KEY_USER_AVATAR = "auth_user_avatar"
         private const val KEY_USER_EMAIL = "auth_user_email"
         private const val KEY_USER_PHONE = "auth_user_phone"
         private const val KEY_USER_ROLE = "auth_user_role"

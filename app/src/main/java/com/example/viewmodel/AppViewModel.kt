@@ -797,11 +797,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateUserProfile(name: String, avatarUrl: String, phone: String) {
         viewModelScope.launch {
-            val user = currentUser.value ?: return@launch
-            val updatedUser = user.copy(name = name, avatarUrl = avatarUrl, phone = phone)
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
+            val existing = currentUser.value ?: dao.getUser(currentUid)
+            val updatedUser = existing?.copy(name = name, avatarUrl = avatarUrl, phone = phone) ?: UserEntity(
+                id = currentUid,
+                name = name,
+                email = "user@example.com",
+                phone = phone,
+                avatarUrl = avatarUrl,
+                rating = 5.0f,
+                rideCount = 1,
+                isVerified = true,
+                walletPoints = 50,
+                isSuspended = false,
+                suspendReason = null,
+                registrationDate = "2026-01-15",
+                userRole = "راكب وسائق",
+                referralCode = "WASALNI-100"
+            )
             dao.insertUser(updatedUser)
-            dao.updateDriverProfileInRides(user.id, name, avatarUrl)
-            dao.updateUserProfileInRequestedTrips(user.id, name, avatarUrl)
+            dao.updateDriverProfileInRides(currentUid, name, avatarUrl)
+            dao.updateUserProfileInRequestedTrips(currentUid, name, avatarUrl)
 
             try {
                 repository.updateProfile(name, avatarUrl, phone)
@@ -814,7 +830,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             val notif = NotificationEntity(
                 id = UUID.randomUUID().toString(),
-                userId = currentUserId,
+                userId = currentUid,
                 title = "تم تحديث بيانات الملف الشخصي",
                 message = "تم تحديث صورتك الشخصية وبيانات حسابك بنجاح وستظهر لجميع المستخدمين.",
                 type = NotificationType.SYSTEM.name
@@ -937,13 +953,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun acceptRequestedTrip(requestId: String) {
         viewModelScope.launch {
-            repository.acceptRequestedTrip(requestId)
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
+            val user = currentUser.value ?: dao.getUser(currentUid)
+            val driverName = user?.name ?: "كابتن وسلني"
+            val driverAvatar = user?.avatarUrl ?: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300"
+            repository.acceptRequestedTrip(requestId, currentUid, driverName, driverAvatar)
         }
     }
 
     fun cancelAcceptedRequestedTrip(requestId: String) {
         viewModelScope.launch {
-            repository.cancelAcceptedRequestedTrip(requestId)
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
+            val user = currentUser.value ?: dao.getUser(currentUid)
+            val driverName = user?.name ?: "كابتن وسلني"
+            repository.cancelAcceptedRequestedTrip(requestId, currentUid, driverName)
         }
     }
 
@@ -969,12 +992,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteWalletTransaction(txId: String) {
         viewModelScope.launch {
+            dao.deleteWalletTransaction(txId)
             repository.deleteWalletTransaction(txId)
         }
     }
 
     fun clearAllWalletTransactions() {
         viewModelScope.launch {
+            val currentUid = activeUserId.value.ifBlank { currentUserId }
+            if (currentUid.isNotBlank()) {
+                dao.clearUserWalletTransactions(currentUid)
+            } else {
+                dao.clearAllWalletTransactions()
+            }
             repository.clearAllWalletTransactions()
         }
     }
